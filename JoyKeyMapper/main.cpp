@@ -60,13 +60,6 @@ std::atomic<bool> g_isConnected(false);
 #define IDC_BTN_CONN        1012
 
 
-struct DeviceInfo {
-    std::string name;
-    std::wstring displayName;
-    std::wstring devId;
-    unsigned long long macAddress;
-    bool isConnected;
-};
 struct DevBtnsVarInfo {
     std::string name;
     bool isKey;
@@ -76,7 +69,7 @@ struct DevBtnsVarInfo {
 std::string g_selectedProgram = "Default";
 std::string showBtnCnfName = "▶";
 
-std::vector<DeviceInfo> g_deviceList;
+std::vector<IConnection::DriverInfo>* g_deviceList = nullptr;
 std::vector<std::string> devBtns;
 std::vector<DevBtnsVarInfo> devBtnsVar = { {"_ct.", 1, 0}, {showBtnCnfName, 0, 0} };
 std::map<std::string, bool> funVars;
@@ -177,7 +170,7 @@ void loadConfigToEdit(HWND hEdit, const std::string& filename) {
     }
 }
 
-void saveConfigFromEdit(HWND hEdit, const std::string& filepath, const std::string& program) {
+void saveConfigFromEdit(HWND hEdit, const std::string& filepath, const std::string& program, int index) {
     std::string filename = filepath + "\\" + program + ".conf";
 
     std::string content = "";
@@ -197,7 +190,7 @@ void saveConfigFromEdit(HWND hEdit, const std::string& filepath, const std::stri
     bool confFlg = false;
 
     std::map<std::string, std::map<std::string, std::string>> confs;
-    connManage.getDefConf(confs);
+    connManage.getDefConf(confs, index);
 
     std::map<std::string, std::map<std::string, std::string>> tmpconfs;
     std::string cnnname = connManage.getAliasNm();
@@ -419,8 +412,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         hComboProgram = CreateWindowW(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWN | WS_VSCROLL | WS_BORDER,
             10, 145, 150, 150, hWnd, (HMENU)IDC_COMBO_PROGRAM, NULL, NULL);
         refreshAllVisiblePrograms(hComboProgram);
+        /*
         CreateWindowW(L"BUTTON", L"刷新设备", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             165, 145, 80, 22, hWnd, (HMENU)IDC_BTN_REFRESH, NULL, NULL);
+        */
         CreateWindowW(L"BUTTON", L"连接", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             250, 145, 40, 22, hWnd, (HMENU)IDC_BTN_CONN, NULL, NULL);
 
@@ -588,19 +583,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
 
         if (pDI->CtlID == IDC_LIST_DEVICES) {
-            DeviceInfo& drawDev = g_deviceList[itemIndex];
-            const std::wstring& text = drawDev.displayName;
+            IConnection::DriverInfo& drawDev = (*g_deviceList)[itemIndex];
+            const std::wstring& text = UTF8ToWString(drawDev.name);
 
             if (pDI->itemState & ODS_SELECTED) {
                 FillRect(hdc, &rect, hBlueBrush);
-                if (drawDev.isConnected) {
+                if (drawDev.connIdx >= 0) {
                     SetTextColor(hdc, RGB(0, 128, 0));
                 }
                 else {
                     SetTextColor(hdc, RGB(0, 0, 0));
                 }
             }
-            else if (drawDev.isConnected) {
+            else if (drawDev.connIdx >= 0) {
                 HBRUSH hGreenBrush = CreateSolidBrush(RGB(200, 255, 200));
                 FillRect(hdc, &rect, hGreenBrush);
                 SetTextColor(hdc, RGB(0, 128, 0));
@@ -613,7 +608,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             rect.left += 20;
             DrawTextW(hdc, text.c_str(), (int)text.length(), &rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-            if (drawDev.isConnected) {
+            if (drawDev.connIdx >= 0) {
                 const wchar_t* checkMark = L"✓";
                 RECT checkRect = pDI->rcItem;
                 checkRect.right = checkRect.left + 20;
@@ -639,8 +634,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
                     OutputDebugStringA(("select " + std::to_string(idx) + "\n").c_str());
 
-                    if (idx != LB_ERR && idx < g_deviceList.size()) {
-                        std::string filepath = connManage.devChooseNmMac(g_deviceList[idx].name, g_deviceList[idx].macAddress);
+                    if (idx != LB_ERR && idx < g_deviceList->size()) {
+                        std::string filepath = connManage.devChooseNmMac(idx);
                         std::string filename = filepath + "\\" + g_selectedProgram + ".conf";
                         OutputDebugStringA(("loadConfigToEdit: " + filename + "\n").c_str());
                         // 加载配置
@@ -651,22 +646,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 if (wmEvent == LBN_DBLCLK) {
                     int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
                     SimpleLogger::LOG_INFO("LBN_DBLCLK: {}", idx);
-                    if (idx == LB_ERR || idx >= g_deviceList.size()) {
+                    if (idx == LB_ERR || idx >= g_deviceList->size()) {
                         MessageBox(hWnd, L"请先选择设备", L"错误", MB_OK | MB_ICONERROR);
                         return 0;
                     }
-                    DeviceInfo& selectedDev = g_deviceList[idx];
+                    IConnection::DriverInfo& selectedDev = (*g_deviceList)[idx];
 
-                    if (selectedDev.isConnected) {
+                    if (selectedDev.connIdx >= 0) {
                         // 断开
-                        connManage.devDisconnect(selectedDev.name, selectedDev.macAddress);
-                        selectedDev.isConnected = false;
+                        connManage.devDisconnect(idx);
                     }
                     else {
                         // 连接
                         SimpleLogger::LOG_INFO("LBN_DBLCLK -> devConnect: {}", selectedDev.name);
-                        bool iscon = connManage.devConnect(selectedDev.name, selectedDev.macAddress, selectedDev.devId);
-                        selectedDev.isConnected = iscon;
+                        bool iscon = connManage.devConnect(idx);
                     }
 
                     InvalidateRect(hListDevices, NULL, TRUE);
@@ -790,8 +783,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
                             // 重新加载当前选中设备的配置
                             int devIdx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
-                            if (devIdx != LB_ERR && devIdx < g_deviceList.size()) {
-                                std::string filepath = connManage.devChooseNmMac(g_deviceList[devIdx].name, g_deviceList[devIdx].macAddress);
+                            if (devIdx != LB_ERR && devIdx < g_deviceList->size()) {
+                                std::string filepath = connManage.devChooseNmMac(devIdx);
                                 std::string filename = filepath + "\\" + g_selectedProgram + ".conf";
                                 loadConfigToEdit(hEditConfig, filename);
                             }
@@ -802,43 +795,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             case IDC_BTN_REFRESH: {
                 SendMessage(hListDevices, LB_RESETCONTENT, 0, 0);
-                g_deviceList.clear();
-
-                BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams = { 0 };
-                searchParams.dwSize = sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS);
-                searchParams.fReturnAuthenticated = TRUE;
-                searchParams.fReturnConnected = TRUE;
-                searchParams.fIssueInquiry = TRUE;
-                searchParams.fReturnUnknown = TRUE;
-                searchParams.cTimeoutMultiplier = 3;
-
-                BLUETOOTH_DEVICE_INFO deviceInfo;
-                ZeroMemory(&deviceInfo, sizeof(BLUETOOTH_DEVICE_INFO));
-                deviceInfo.dwSize = sizeof(BLUETOOTH_DEVICE_INFO);
-
-                // 蓝牙设备
-                HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&searchParams, &deviceInfo);
-                if (hFind == NULL) {
-                    MessageBox(hWnd, L"ToyKeyMapper：未找到已配对的设备\n请确保设备已配对并在范围内", L"提示", MB_OK | MB_ICONWARNING);
-                }
-                else {
-                    do {
-                        std::wstring wideName(deviceInfo.szName);
-                        std::string name(wideName.begin(), wideName.end());
-                        std::string upperName = name;
-                        std::transform(upperName.begin(), upperName.end(), upperName.begin(), ::toupper);
-
-                        DeviceInfo dev;
-                        dev.name = upperName;
-                        dev.macAddress = deviceInfo.Address.ullLong;
-                        dev.displayName = deviceInfo.szName;
-                        dev.isConnected = false;
-                        g_deviceList.push_back(dev);
-                        SimpleLogger::LOG_INFO("获取蓝牙设备: {}:{:012X}", upperName, deviceInfo.Address.ullLong);
-
-                        SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.displayName.c_str());
-                    } while (BluetoothFindNextDevice(hFind, &deviceInfo));
-                    BluetoothFindDeviceClose(hFind);
+                g_deviceList = &connManage.getDrivers();
+                for (const auto& dev : *g_deviceList) {
+                    SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.name.c_str());
                 }
 
                 /*
@@ -915,17 +874,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             case IDC_BTN_SAVE: {
                 int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
-                if (idx != LB_ERR && idx < g_deviceList.size()) {
-                    std::string filepath = connManage.devChooseNmMac(g_deviceList[idx].name, g_deviceList[idx].macAddress);
-                    saveConfigFromEdit(hEditConfig, filepath, g_selectedProgram);
+                if (idx != LB_ERR && idx < g_deviceList->size()) {
+                    std::string filepath = connManage.devChooseNmMac(idx);
+                    saveConfigFromEdit(hEditConfig, filepath, g_selectedProgram, idx);
                     MessageBox(hWnd, L"配置已保存并重载", L"成功", MB_OK | MB_ICONINFORMATION);
                 }
                 break;
             }
             case IDC_BTN_DEMO: {
                 int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
-                if (idx != LB_ERR && idx < g_deviceList.size()) {
-                    std::string defRule = connManage.getDefRule(g_deviceList[idx].name, g_deviceList[idx].macAddress);
+                if (idx != LB_ERR && idx < g_deviceList->size()) {
+                    std::string defRule = connManage.getDefRule(idx);
                     std::wstring defRuleW = UTF8ToWString(defRule);
 
                     // 获取编辑框当前内容
@@ -953,22 +912,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             case IDC_BTN_CONN: {
                 int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
                 SimpleLogger::LOG_INFO("IDC_BTN_CONN: {}", idx);
-                if (idx == LB_ERR || idx >= g_deviceList.size()) {
+                if (idx == LB_ERR || idx >= g_deviceList->size()) {
                     MessageBox(hWnd, L"请先选择设备", L"错误", MB_OK | MB_ICONERROR);
                     return 0;
                 }
-                DeviceInfo& selectedDev = g_deviceList[idx];
+                IConnection::DriverInfo& selectedDev = (*g_deviceList)[idx];
 
-                if (selectedDev.isConnected) {
+                if (selectedDev.connIdx >= 0) {
                     // 断开
-                    connManage.devDisconnect(selectedDev.name, selectedDev.macAddress);
-                    selectedDev.isConnected = false;
+                    connManage.devDisconnect(idx);
                 }
                 else {
                     // 连接
                     SimpleLogger::LOG_INFO("IDC_BTN_CONN -> devConnect: {}", selectedDev.name);
-                    bool iscon = connManage.devConnect(selectedDev.name, selectedDev.macAddress, selectedDev.devId);
-                    selectedDev.isConnected = iscon;
+                    bool iscon = connManage.devConnect(idx);
                 }
 
                 InvalidateRect(hListDevices, NULL, TRUE);
@@ -995,17 +952,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if ((HWND)wParam == hListDevices) {
             // 获取当前选中的项
             int idx = SendMessage(hListDevices, LB_GETCURSEL, 0, 0);
-            if (idx != LB_ERR && idx < g_deviceList.size()) {
-                DeviceInfo& dev = g_deviceList[idx];
-
+            if (idx != LB_ERR && idx < g_deviceList->size()) {
                 // 调用 setDataView 切换状态
-                bool isViewOn = connManage.setDataView(dev.name, dev.macAddress);
+                bool isViewOn = connManage.setDataView(idx);
             }
         }
         return 0;
     }
     case WM_DESTROY: {
-        connManage.devDisconnect("", 0);
+        connManage.devDisconnect(0);
         PostQuitMessage(0);
         break;
     }
@@ -1016,8 +971,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_REFRESH_DEVICE_LIST: {
         SendMessage(hListDevices, LB_RESETCONTENT, 0, 0);
 
-        for (const auto& dev : g_deviceList) {
-            SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.displayName.c_str());
+        for (const auto& dev : *g_deviceList) {
+            SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.name.c_str());
         }
         return 0;
     }

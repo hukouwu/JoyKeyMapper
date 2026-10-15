@@ -29,6 +29,9 @@ public:
     std::string getAliasNm() override {
         return _nmMac;
     }
+    int getIndex() override {
+        return -1;
+    }
     std::string getNmMac() override {
         std::string allNmMac = "";
         int i = 0;
@@ -58,22 +61,17 @@ public:
         }
         return off;
     }
-    std::string devChooseNmMac(std::string name, unsigned long long macAddress) override {
+    std::string devChooseNmMac(int index) {
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
         std::vector<std::string> nmMacs;
         for (std::unique_ptr<IConnection>& conn : m_connections) {
             nmMacs.push_back(conn->getNmMac());
         }
 
-        for (auto& driver : IConnection::m_drivers) {
-            if (driver.matcher(name)) {
-                std::unique_ptr<IConnection> conn = driver.factory();
-                std::string tmpNmMac = conn->devChooseNmMac(name, macAddress);
-                if (std::find(nmMacs.begin(), nmMacs.end(), tmpNmMac) == nmMacs.end()) {
-                    nmMacs.push_back(tmpNmMac);
-                }
-                break;
-            }
+        DriverInfo& driver = IConnection::m_drivers[index];
+        std::string tmpNmMac = driver.nameMac;
+        if (std::find(nmMacs.begin(), nmMacs.end(), tmpNmMac) == nmMacs.end()) {
+            nmMacs.push_back(tmpNmMac);
         }
 
         std::sort(nmMacs.begin(), nmMacs.end(), [](std::string& nmMacA, std::string& nmMacB) {
@@ -92,46 +90,55 @@ public:
 
         return allNmMac;
     }
-    bool devConnect(std::string name, unsigned long long macAddress, std::wstring devId) override {
+
+    std::vector<DriverInfo>& getDrivers() {
+        return IConnection::m_drivers;
+    }
+    bool devConnect(int index) override {
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
-        for (DriverInfo& driver : IConnection::m_drivers) {
-            if (driver.matcher(name)) {
-                std::unique_ptr<IConnection> conn = driver.factory();
-                SimpleLogger::LOG_INFO("devConnect -> conn");
-                if (conn->devConnect(name, macAddress, devId)) {
-                    m_connections.emplace_back(std::move(conn));
-                    std::sort(m_connections.begin(), m_connections.end(), [](std::unique_ptr<IConnection>& connA, std::unique_ptr<IConnection>& connB){
-                        return connA->getNmMac() < connB->getNmMac();
-                    });
-                    return true;
-                }
+        DriverInfo& driver = IConnection::m_drivers[index];
+        
+        std::unique_ptr<IConnection> conn = driver.factory();
+        SimpleLogger::LOG_INFO("devConnect -> conn");
+        if (conn->devConnect(index)) {
+            m_connections.emplace_back(std::move(conn));
+            std::sort(m_connections.begin(), m_connections.end(), [](std::unique_ptr<IConnection>& connA, std::unique_ptr<IConnection>& connB){
+                return connA->getNmMac() < connB->getNmMac();
+            });
+
+            for (int i = 0; i < m_connections.size(); i++) {
+                auto& connItem = m_connections[i];
+                int dIdx = connItem->getIndex();
+                IConnection::m_drivers[dIdx].connIdx = i;
             }
+            return true;
         }
 
         return false;
     }
 
-    void devDisconnect(std::string name, unsigned long long macAddress) override {
+    bool devDisconnect(int index) override {
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
 
         for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-            if ((*it)->getMac() == macAddress) {
-                (*it)->devDisconnect(name, macAddress);
+            if ((*it)->devDisconnect(index)) {
                 m_connections.erase(it);
                 break;
             }
         }
+
+        for (int i = 0; i < m_connections.size(); i++) {
+            auto& connItem = m_connections[i];
+            int dIdx = connItem->getIndex();
+            IConnection::m_drivers[dIdx].connIdx = i;
+        }
+
+        return true;
     }
 
-    bool setDataView(std::string name, unsigned long long macAddress) override {
+    bool setDataView(int index) override {
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
-        
-        for (std::unique_ptr<IConnection>& conn : m_connections) {
-            if (conn->getMac() == macAddress) {
-                conn->setDataView(name, macAddress);
-                break;
-            }
-        }
+        m_connections[IConnection::m_drivers[index].connIdx]->setDataView(index);
 
         DebugHexView::GetInstance().open();
 
@@ -209,26 +216,29 @@ public:
         }
     }
 
-    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs) override {
+    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs, int index) override {
         std::map<std::string, std::string> defConf;
         defConf.insert(std::make_pair("interval", std::to_string(defInterval)));
         defConfs[_nmMac] = defConf;
 
+        IConnection::DriverInfo& drv = IConnection::m_drivers[index];
+        if (drv.connIdx < 0) {
+            drv.factory()->getDefConf(defConfs, index);
+        }
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
         for (std::unique_ptr<IConnection>& conn : m_connections) {
-            conn->getDefConf(defConfs);
+            conn->getDefConf(defConfs, conn->getIndex());
         }
     }
-    std::string getDefRule(std::string name, unsigned long long macAddress) override {
+    std::string getDefRule(int index) override {
+        IConnection::DriverInfo& drv = IConnection::m_drivers[index];
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
 
-        for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-            if ((*it)->getMac() == macAddress) {
-                return (*it)->getDefRule(name, macAddress);
-            }
+        if (drv.connIdx >= 0) {
+            return m_connections[drv.connIdx]->getDefRule(index);
         }
 
-        return "";
+        return drv.factory()->getDefRule(index);
     }
 
     struct DevBtnIndInfo {
@@ -243,7 +253,7 @@ public:
         int size = m_connections.size();
         for (std::unique_ptr<IConnection>& conn : m_connections) {
             std::string aliasNm = conn->getAliasNm();
-            std::vector<std::string> btns = conn->getDevBtns(size);
+            std::vector<std::string> btns = conn->getDevBtns(conn->getIndex());
             for (std::string btn : btns) {
                 if (devBtnsIndex.count(btn) > 0) {
                     DevBtnIndInfo& devBtnInfo = devBtnsIndex[btn];

@@ -11,18 +11,15 @@
 #include "EvState.h"
 
 class CMGamepadConnection : public IConnection {
-public:
-    static constexpr const char* DEVICE_NAME = "CMGAMEPAD";
 private:
-    std::string _name;
     std::string _aliasName;
-    unsigned long long _macAddress;
     std::string _nmMac;
     bool _dataView = true;
     int _offSignBase;
 
     std::vector<uint8_t> lastData;
 
+    int _index;
     SOCKET m_socket = INVALID_SOCKET;
     bool m_isRunning = false;
     std::vector<uint8_t> m_frameBuffer;
@@ -256,7 +253,7 @@ private:
 
 public:
     ~CMGamepadConnection() {
-        devDisconnect("", 0);
+        devDisconnect(_index);
     }
     std::string getAliasNm() override {
         return _aliasName;
@@ -264,12 +261,15 @@ public:
     std::string getNmMac() override {
         return _nmMac;
     }
+    int getIndex() override {
+        return _index;
+    }
     unsigned long long getMac() override {
-        return _macAddress;
+        return IConnection::m_drivers[_index].mac;
     }
     void reloadConf(std::map<std::string, std::map<std::string, std::string>>& confs) override {
         std::map<std::string, std::map<std::string, std::string>> defConfs;
-        getDefConf(defConfs);
+        getDefConf(defConfs, _index);
         std::map<std::string, std::string>& defConf = defConfs[_nmMac];
 
         std::map<std::string, std::string>& conf = confs[_nmMac];
@@ -297,9 +297,11 @@ public:
         stkRange["RSU"] = parseRangeConfig(conf["RSU"], defConf["RSU"]);
         stkRange["RSD"] = parseRangeConfig(conf["RSD"], defConf["RSD"]);
     }
-    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs) override {
+    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs, int index) override {
+        IConnection::DriverInfo& driInfo = IConnection::m_drivers[index];
+
         std::map<std::string, std::string> defConf;
-        defConf[_nmMac] = "0";
+        defConf[driInfo.nameMac] = "0";
         defConf["obstMod"] = "0";
         defConf["LSL"] = "0,127,-1,128";
         defConf["LSR"] = "129,255,1,-128";
@@ -309,9 +311,9 @@ public:
         defConf["RSR"] = "129,255,1,-128";
         defConf["RSU"] = "0,127,-1,128";
         defConf["RSD"] = "129,255,1,-128";
-        defConfs[_nmMac] = defConf;
+        defConfs[driInfo.nameMac] = defConf;
     }
-    std::string getDefRule(std::string name, unsigned long long macAddress) override {
+    std::string getDefRule(int index) override {
 
         return
 R"xxx(
@@ -332,10 +334,7 @@ R"xxx(
     std::vector<std::string> getDevBtns(int cnt) override {
         return btns;
     }
-    std::string devChooseNmMac(std::string name, unsigned long long macAddress) override {
-        return name + "_" + std::to_string(macAddress);
-    }
-    bool setDataView(std::string name, unsigned long long macAddress) override {
+    bool setDataView(int index) override {
         _dataView = !_dataView;
         return _dataView;
     }
@@ -346,16 +345,17 @@ R"xxx(
         m_onConnectionChanged = callback;
     }
 
-    bool devConnect(std::string name, unsigned long long macAddress, std::wstring devId) override {
-        _name = name;
-        _macAddress = macAddress;
-        _nmMac = _name + "_" + std::to_string(_macAddress);
+    bool devConnect(int index) override {
+        _index = index;
+        _nmMac = IConnection::m_drivers[_index].name + "_" + std::to_string(IConnection::m_drivers[_index].mac);
 
         SimpleLogger::LOG_INFO("CMGamepadConnection.devConnect");
+
+        std::string name = IConnection::m_drivers[_index].name;
         BLUETOOTH_DEVICE_INFO deviceInfo;
         ZeroMemory(&deviceInfo, sizeof(BLUETOOTH_DEVICE_INFO));
         deviceInfo.dwSize = sizeof(BLUETOOTH_DEVICE_INFO);
-        deviceInfo.Address.ullLong = macAddress;
+        deviceInfo.Address.ullLong = IConnection::m_drivers[_index].mac;
         std::wstring wName(name.begin(), name.end());
         wcsncpy_s(deviceInfo.szName, wName.c_str(), BTH_MAX_NAME_SIZE);
 
@@ -369,7 +369,10 @@ R"xxx(
         return false;
     }
 
-    void devDisconnect(std::string name, unsigned long long macAddress) override {
+    bool devDisconnect(int index) override {
+        if (_index != index) {
+            return false;
+        }
         m_isRunning = false;
 
         if (m_socket != INVALID_SOCKET) {
@@ -378,6 +381,7 @@ R"xxx(
         }
 
         m_frameBuffer.clear();
+        return true;
     }
 
 private:
@@ -575,17 +579,45 @@ private:
 
 
 static bool autoRegister1 = []() {
-    IConnection::m_drivers.push_back({
-        CMGamepadConnection::DEVICE_NAME,
-        [](const std::string& name) {
-            return name.find(CMGamepadConnection::DEVICE_NAME) != std::string::npos;
-        },
-        []() -> std::unique_ptr<IConnection> {
-            return std::make_unique<CMGamepadConnection>();
-        }
-        });
+    SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister");
 
-    std::cout << "[信息] 自动注册 " << CMGamepadConnection::DEVICE_NAME << " 驱动" << std::endl;
+    BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams = { 0 };
+    searchParams.dwSize = sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS);
+    searchParams.fReturnAuthenticated = TRUE;
+    searchParams.fReturnConnected = TRUE;
+    searchParams.fIssueInquiry = TRUE;
+    searchParams.fReturnUnknown = TRUE;
+    searchParams.cTimeoutMultiplier = 3;
+
+    BLUETOOTH_DEVICE_INFO deviceInfo;
+    ZeroMemory(&deviceInfo, sizeof(BLUETOOTH_DEVICE_INFO));
+    deviceInfo.dwSize = sizeof(BLUETOOTH_DEVICE_INFO);
+
+    // 蓝牙设备
+    HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&searchParams, &deviceInfo);
+    if (hFind == NULL) {
+        SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister error：未找到已配对的设备");
+        return false;
+    }
+    else {
+        do {
+            std::wstring wName(deviceInfo.szName);
+            if (wName.find(L"CMGamepad") != std::wstring::npos) {
+                IConnection::DriverInfo driverInfo;
+                driverInfo.name = WStringToUTF8(deviceInfo.szName);
+                driverInfo.mac = deviceInfo.Address.ullLong;
+                driverInfo.nameMac = driverInfo.name + "_" + std::to_string(driverInfo.mac);
+                driverInfo.factory = []() -> std::unique_ptr<IConnection> {
+                    return std::make_unique<CMGamepadConnection>();
+                };
+
+                IConnection::m_drivers.push_back(driverInfo);
+                SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister 获取蓝牙设备: {}:{:012X}", driverInfo.name, driverInfo.path);
+            }
+        } while (BluetoothFindNextDevice(hFind, &deviceInfo));
+        BluetoothFindDeviceClose(hFind);
+    }
+
     return true;
     }();
 

@@ -14,18 +14,14 @@
 #include "EvState.h"
 
 class JoyConConnection : public IConnection {
-public:
-    static constexpr const char* DEVICE_NAME = "JOY-CON";
 private:
-    std::string _name;
     std::string _aliasName;
-    unsigned long long _macAddress;
     std::string _nmMac;
     bool _dataView = true;
     int _offSignBase;
     std::wstring _currentDevicePath;
-    int _leftRight = 0;
 
+    int _index = -1;
     HANDLE m_hDevice = INVALID_HANDLE_VALUE;
     DWORD m_inputReportLength = 0;
     std::vector<uint8_t> lastData;
@@ -281,7 +277,7 @@ private:
 
 public:
     ~JoyConConnection() {
-        devDisconnect("", 0);
+        devDisconnect(_index);
     }
     std::string getAliasNm() override {
         return _aliasName;
@@ -289,27 +285,34 @@ public:
     std::string getNmMac() override {
         return _nmMac;
     }
-    unsigned long long getMac() override {
-        return _macAddress;
+    int getIndex() override {
+        return _index;
     }
-    bool setDataView(std::string name, unsigned long long macAddress) override {
+    unsigned long long getMac() override {
+        return IConnection::m_drivers[_index].mac;
+    }
+    bool setDataView(int index) override {
         _dataView = !_dataView;
         return _dataView;
     }
     void reloadConf(std::map<std::string, std::map<std::string, std::string>>& confs) override {
+        if (_index < 0) {
+            return;
+        }
+
         std::map<std::string, std::map<std::string, std::string>> defConfs;
-        getDefConf(defConfs);
+        getDefConf(defConfs, _index);
         std::map<std::string, std::string>& defConf = defConfs[_nmMac];
 
         std::map<std::string, std::string>& conf = confs[_nmMac];
         _aliasName = conf[_nmMac];
-        if (_leftRight & 1) {
+        if (IConnection::m_drivers[_index].att & 1) {
             stkRange["LSL"] = parseRangeConfig(conf["LSL"], defConf["LSL"]);
             stkRange["LSR"] = parseRangeConfig(conf["LSR"], defConf["LSR"]);
             stkRange["LSU"] = parseRangeConfig(conf["LSU"], defConf["LSU"]);
             stkRange["LSD"] = parseRangeConfig(conf["LSD"], defConf["LSD"]);
         }
-        if (_leftRight & 2) {
+        if (IConnection::m_drivers[_index].att & 2) {
             stkRange["RSL"] = parseRangeConfig(conf["RSL"], defConf["RSL"]);
             stkRange["RSR"] = parseRangeConfig(conf["RSR"], defConf["RSR"]);
             stkRange["RSU"] = parseRangeConfig(conf["RSU"], defConf["RSU"]);
@@ -317,25 +320,27 @@ public:
         }
         
     }
-    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs) override {
+    void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConfs, int index) override {
+        IConnection::DriverInfo& driInfo = IConnection::m_drivers[index];
+
         std::map<std::string, std::string> defConf;
-        defConf[_nmMac] = "0";
-        if (_leftRight & 1) {
+        defConf[driInfo.nameMac] = "0";
+        if (driInfo.att & 1) {
             defConf["LSL"] = "0,0x7e0,-1,0x800";
             defConf["LSR"] = "0x810,0xff0,1,-0x800";
             defConf["LSU"] = "0x810,0xff0,1,-0x800";
             defConf["LSD"] = "0,0x7e0,-1,0x800";
         }
-        if (_leftRight & 2) {
+        if (driInfo.att & 2) {
             defConf["RSL"] = "0,0x7e0,-1,0x800";
             defConf["RSR"] = "0x810,0xff0,1,-0x800";
             defConf["RSU"] = "0x810,0xff0,1,-0x800";
             defConf["RSD"] = "0,0x7e0,-1,0x800";
         }
-        defConfs[_nmMac] = defConf;
+        defConfs[driInfo.nameMac] = defConf;
     }
-    std::string getDefRule(std::string name, unsigned long long macAddress) override {
-        if (_leftRight & 1) {
+    std::string getDefRule(int index) override {
+        if (IConnection::m_drivers[index].att & 1) {
             return
                 R"xxx(
 #左键
@@ -352,7 +357,7 @@ public:
 )xxx";
         }
 
-        if (_leftRight & 2) {
+        if (IConnection::m_drivers[index].att & 2) {
             return
                 R"xxx(
 #左键
@@ -370,17 +375,14 @@ public:
         }
     }
 
-    std::vector<std::string> getDevBtns(int cnt) override {
-        if (_leftRight == 1) {
+    std::vector<std::string> getDevBtns(int index) override {
+        if (IConnection::m_drivers[index].att == 1) {
             return lbtns;
         }
-        if (_leftRight == 2) {
+        if (IConnection::m_drivers[index].att == 2) {
             return rbtns;
         }
         return btns;
-    }
-    std::string devChooseNmMac(std::string name, unsigned long long macAddress) override {
-        return name + "_" + std::to_string(macAddress);
     }
     void setOnStateChanged(std::function<void(const EvState&)> callback) override {
         m_onStateChanged = callback;
@@ -390,106 +392,40 @@ public:
     }
 
     HANDLE openJoyConHandle() {
-        SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle start");
-        GUID hidGuid;
-        HidD_GetHidGuid(&hidGuid);
+        // 打开句柄
+        HANDLE hDevice = CreateFile(UTF8ToWString(IConnection::m_drivers[_index].path).c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+            
+        HIDD_ATTRIBUTES attributes;
+        attributes.Size = sizeof(HIDD_ATTRIBUTES);
 
-        HDEVINFO deviceInfoSet = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-        if (deviceInfoSet == INVALID_HANDLE_VALUE) {
-            SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle SetupDiGetClassDevs failed. Error: {}", GetLastError());
+        // 获取 HID 预解析数据
+        PHIDP_PREPARSED_DATA PreparsedData = NULL;
+        if (HidD_GetPreparsedData(hDevice, &PreparsedData)) {
+            HIDP_CAPS Caps;
+            memset(&Caps, 0, sizeof(Caps));
+            if (HidP_GetCaps(PreparsedData, &Caps) == HIDP_STATUS_SUCCESS) {
+                // 保存输入报告的长度
+                m_inputReportLength = Caps.InputReportByteLength;
+                SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle Input Report Length: {} bytes", m_inputReportLength);
+            }
+            else {
+                SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle HidP_GetCaps failed");
+            }
+            HidD_FreePreparsedData(PreparsedData);
+        }
+        else {
+            SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle HidD_GetPreparsedData failed");
+            CloseHandle(hDevice);
             return INVALID_HANDLE_VALUE;
         }
 
-        SP_DEVICE_INTERFACE_DATA interfaceData;
-        interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-
-        for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfoSet, NULL, &hidGuid, i, &interfaceData); ++i) {
-            DWORD requiredSize = 0;
-            SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, NULL, 0, &requiredSize, NULL);
-
-            std::vector<BYTE> detailBuffer(requiredSize);
-            PSP_DEVICE_INTERFACE_DETAIL_DATA detailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)detailBuffer.data();
-            detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-
-            if (!SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, detailData, requiredSize, NULL, NULL)) {
-                SimpleLogger::LOG_ERROR("JoyConConnection.openJoyConHandle SetupDiGetDeviceInterfaceDetail failed for index {}", i);
-                continue;
-            }
-
-            SimpleLogger::LOG_INFO("尝试打开设备路径: {}", WStringToUTF8(detailData->DevicePath));
-            // 打开句柄
-            HANDLE hDevice = CreateFile(detailData->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-            if (hDevice == INVALID_HANDLE_VALUE) {
-                SimpleLogger::LOG_ERROR("JoyConConnection.openJoyConHandle CreateFile failed for index {}. Error: {}", i, GetLastError());
-                continue;
-            }
-
-            // 检查是否是 Nintendo 设备
-            HIDD_ATTRIBUTES attributes;
-            attributes.Size = sizeof(HIDD_ATTRIBUTES);
-            if (!HidD_GetAttributes(hDevice, &attributes)) {
-                SimpleLogger::LOG_ERROR("JoyConConnection.openJoyConHandle HidD_GetAttributes failed. Closing handle.");
-                CloseHandle(hDevice);
-                continue;
-            }
-
-            if (IConnection::connectedDev.find(detailData->DevicePath) != IConnection::connectedDev.end()) {
-                SimpleLogger::LOG_ERROR("JoyConConnection.openJoyConHandle Device already connected, skipping.");
-                CloseHandle(hDevice);
-                continue;
-            }
-            SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle Found HID Device: VID=0x{:04X}, PID=0x{:04X}", attributes.VendorID, attributes.ProductID);
-            if (attributes.VendorID == 0x057E && (attributes.ProductID == 0x2006 || attributes.ProductID == 0x2007 || attributes.ProductID == 0x200E)) {
-                SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle {}:{} Matched A New Nintendo as Connector!", _name, _macAddress);
-                // 获取 HID 预解析数据
-                PHIDP_PREPARSED_DATA PreparsedData = NULL;
-                if (HidD_GetPreparsedData(hDevice, &PreparsedData)) {
-                    HIDP_CAPS Caps;
-                    memset(&Caps, 0, sizeof(Caps));
-                    if (HidP_GetCaps(PreparsedData, &Caps) == HIDP_STATUS_SUCCESS) {
-                        // 保存输入报告的长度
-                        m_inputReportLength = Caps.InputReportByteLength;
-                        SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle Input Report Length: {} bytes", m_inputReportLength);
-                    }
-                    else {
-                        SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle HidP_GetCaps failed");
-                    }
-                    HidD_FreePreparsedData(PreparsedData);
-                }
-                else {
-                    SimpleLogger::LOG_INFO("JoyConConnection.openJoyConHandle HidD_GetPreparsedData failed");
-                    CloseHandle(hDevice);
-                    continue;
-                }
-
-                SetupDiDestroyDeviceInfoList(deviceInfoSet);
-                if (attributes.ProductID == 0x2006) {
-                    _leftRight = 1;
-                }
-                else if (attributes.ProductID == 0x2007) {
-                    _leftRight = 2;
-                }
-                else if (attributes.ProductID == 0x200E) {
-                    _leftRight = 3;
-                }
-                _currentDevicePath = detailData->DevicePath;
-                IConnection::connectedDev.insert(detailData->DevicePath);
-                return hDevice;
-            }
-            else {
-                SimpleLogger::LOG_ERROR("JoyConConnection.openJoyConHandle Not a Nintendo device.");
-            }
-
-            CloseHandle(hDevice);
-        }
-        SetupDiDestroyDeviceInfoList(deviceInfoSet);
-        return INVALID_HANDLE_VALUE;
+        
+        return hDevice;
     }
 
-    bool devConnect(std::string name, unsigned long long macAddress, std::wstring devId) override {
-        _name = name;
-        _macAddress = macAddress;
-        _nmMac = _name + "_" + std::to_string(_macAddress);
+    bool devConnect(int index) override {
+        _index = index;
+        _nmMac = IConnection::m_drivers[_index].name + "_" + std::to_string(IConnection::m_drivers[_index].mac);
 
         SimpleLogger::LOG_INFO("JoyConConnection.devConnect");
         m_hDevice = openJoyConHandle();
@@ -507,7 +443,10 @@ public:
         return true;
     }
 
-    void devDisconnect(std::string name, unsigned long long macAddress) override {
+    bool devDisconnect(int index) override {
+        if (_index != index) {
+            return false;
+        }
         m_isRunning = false;
 
         if (m_hDevice != INVALID_HANDLE_VALUE) {
@@ -516,13 +455,13 @@ public:
         }
 
         if (!_currentDevicePath.empty()) {
-            IConnection::connectedDev.erase(_currentDevicePath);
             _currentDevicePath.clear();
         }
 
         if (m_onConnectionChanged) {
             m_onConnectionChanged(false);
         }
+        return true;
     }
 
 private:
@@ -598,16 +537,121 @@ private:
 
 
 static bool autoRegister2 = []() {
-    IConnection::m_drivers.push_back({
-        JoyConConnection::DEVICE_NAME,
-        [](const std::string& name) {
-            return name.find(JoyConConnection::DEVICE_NAME) != std::string::npos;
-        },
-        []() -> std::unique_ptr<IConnection> {
-            return std::make_unique<JoyConConnection>();
-        }
-        });
+    SimpleLogger::LOG_INFO("JoyConConnection autoRegister");
+    GUID hidGuid;
+    HidD_GetHidGuid(&hidGuid);
 
-    std::cout << "[信息] 自动注册 " << JoyConConnection::DEVICE_NAME << " 驱动" << std::endl;
+    HDEVINFO deviceInfoSet = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (deviceInfoSet == INVALID_HANDLE_VALUE) {
+        SimpleLogger::LOG_INFO("JoyConConnection autoRegister failed. Error: {}", GetLastError());
+        return false;
+    }
+
+    SP_DEVINFO_DATA deviceInfoData;
+    deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(deviceInfoSet, i, &deviceInfoData); ++i) {
+        
+        SP_DEVICE_INTERFACE_DATA interfaceData;
+        interfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+        for (DWORD i = 0; SetupDiEnumDeviceInterfaces(deviceInfoSet, &deviceInfoData, &hidGuid, i, &interfaceData); ++i) {
+            DWORD requiredSize = 0;
+            SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, NULL, 0, &requiredSize, NULL);
+
+            std::vector<BYTE> detailBuffer(requiredSize);
+            PSP_DEVICE_INTERFACE_DETAIL_DATA detailData = (PSP_DEVICE_INTERFACE_DETAIL_DATA)detailBuffer.data();
+            detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+
+            if (!SetupDiGetDeviceInterfaceDetail(deviceInfoSet, &interfaceData, detailData, requiredSize, NULL, NULL)) {
+                SimpleLogger::LOG_ERROR("JoyConConnection autoRegister SetupDiGetDeviceInterfaceDetail failed for index {}", i);
+                continue;
+            }
+
+            SimpleLogger::LOG_INFO("尝试打开设备路径: {}", WStringToUTF8(detailData->DevicePath));
+            // 打开句柄
+            HANDLE hDevice = CreateFile(detailData->DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+            if (hDevice == INVALID_HANDLE_VALUE) {
+                SimpleLogger::LOG_ERROR("JoyConConnection autoRegister CreateFile failed for index {}. Error: {}", i, GetLastError());
+                continue;
+            }
+
+            // 检查是否是 Nintendo 设备
+            HIDD_ATTRIBUTES attributes;
+            attributes.Size = sizeof(HIDD_ATTRIBUTES);
+            if (!HidD_GetAttributes(hDevice, &attributes)) {
+                SimpleLogger::LOG_ERROR("JoyConConnection autoRegister HidD_GetAttributes failed. Closing handle.");
+                CloseHandle(hDevice);
+                continue;
+            }
+
+            SimpleLogger::LOG_INFO("JoyConConnection autoRegister Found HID Device: VID=0x{:04X}, PID=0x{:04X}", attributes.VendorID, attributes.ProductID);
+            if (attributes.VendorID == 0x057E && (attributes.ProductID == 0x2006 || attributes.ProductID == 0x2007 || attributes.ProductID == 0x200E)) {
+                std::string deviceName = "Joy-Con";
+                
+                WCHAR friendlyName[256] = { 0 };
+                DWORD dataType;
+                DWORD requiredSize;
+                if (SetupDiGetDeviceRegistryPropertyW(
+                    deviceInfoSet,
+                    &deviceInfoData,
+                    SPDRP_FRIENDLYNAME,
+                    &dataType,
+                    (PBYTE)friendlyName,
+                    sizeof(friendlyName),
+                    &requiredSize)) {
+                    deviceName = WStringToUTF8(friendlyName);
+                }
+                else {
+                    if (attributes.ProductID == 0x2006) {
+                        deviceName = "Joy-Con(L)";
+                    }
+                    else if (attributes.ProductID == 0x2007) {
+                        deviceName = "Joy-Con(R)";
+                    }
+                    else if (attributes.ProductID == 0x200E) {
+                        deviceName = "Joy-Con(Pair)";
+                    }
+                }
+                SimpleLogger::LOG_INFO("JoyConConnection autoRegister Found HID Device Name: {}", deviceName);
+                
+                
+                std::wstring wDevicePath = detailData->DevicePath;
+                std::string instanceId = "";
+                size_t lastHash = wDevicePath.find_last_of(L'#');
+                size_t secondLastHash = wDevicePath.find_last_of(L'#', lastHash - 1);
+                std::wstring instW = wDevicePath.substr(secondLastHash + 1, lastHash - secondLastHash - 1);
+                instanceId = WStringToUTF8(instW);
+
+                IConnection::DriverInfo driverInfo;
+                if (attributes.ProductID == 0x2006) {
+                    driverInfo.att = 1;
+                }
+                else if (attributes.ProductID == 0x2007) {
+                    driverInfo.att = 2;
+                }
+                else if (attributes.ProductID == 0x200E) {
+                    driverInfo.att = 3;
+                }
+                driverInfo.name = deviceName;
+                driverInfo.path = WStringToUTF8(detailData->DevicePath);
+
+                std::hash<std::string> hasher;
+                driverInfo.mac = hasher(instanceId);
+                SimpleLogger::LOG_INFO("JoyConConnection autoRegister ust Mac: {}", driverInfo.mac);
+
+                driverInfo.nameMac = driverInfo.name + "_" + std::to_string(driverInfo.mac);
+                
+                driverInfo.factory = []() -> std::unique_ptr<IConnection> {
+                    return std::make_unique<JoyConConnection>();
+                };
+
+                IConnection::m_drivers.push_back(driverInfo);
+            }
+
+            CloseHandle(hDevice);
+        }
+    }
+
+    SetupDiDestroyDeviceInfoList(deviceInfoSet);
+    SimpleLogger::LOG_INFO("JoyConConnection autoRegister end.");
     return true;
-    }();
+}();

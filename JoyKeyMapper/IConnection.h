@@ -37,8 +37,12 @@ public:
 
     struct DriverInfo {
         std::string name;
-        DeviceMatcher matcher;
+        std::string path;
+        unsigned long long mac;
+        std::string nameMac;
         ConnectionFactory factory;
+        int connIdx = -1;
+        int att;
     };
     struct RangeEntry {
         int min;
@@ -53,9 +57,9 @@ public:
     virtual ~IConnection() = default;
 
     // 连接设备
-    virtual bool devConnect(std::string name, unsigned long long macAddress, std::wstring devId) = 0;
+    virtual bool devConnect(int index) = 0;
     // 断开连接
-    virtual void devDisconnect(std::string name, unsigned long long macAddress) = 0;
+    virtual bool devDisconnect(int index) = 0;
 
     // 设置回调
     virtual void setOnStateChanged(std::function<void(const EvState&)> callback) = 0;
@@ -63,13 +67,13 @@ public:
     virtual std::string getNmMac() = 0;
     virtual std::string getAliasNm() = 0;
     virtual unsigned long long getMac() = 0;
-    virtual bool setDataView(std::string name, unsigned long long macAddress) = 0;
-    virtual std::string devChooseNmMac(std::string name, unsigned long long macAddress) = 0;
+    virtual bool setDataView(int index) = 0;
     virtual int readLoop(EvState& state) = 0;
     virtual void reloadConf(std::map<std::string, std::map<std::string, std::string>>& confs) = 0;
-    virtual void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConf) = 0;
-    virtual std::string getDefRule(std::string name, unsigned long long macAddress) = 0;
+    virtual void getDefConf(std::map<std::string, std::map<std::string, std::string>>& defConf, int index) = 0;
+    virtual std::string getDefRule(int index) = 0;
     virtual std::vector<std::string> getDevBtns(int cnt) = 0;
+    virtual int getIndex() = 0;
 
     virtual int offSignBase(int off) = 0;
     virtual void indexSign(const std::set<std::string>& nameSet, SignCode& retDSign, SignCode& retUSign) = 0;
@@ -108,6 +112,4 @@ public:
         return entry;
     }
 
-
-    inline static std::unordered_set<std::wstring> connectedDev;
 };
