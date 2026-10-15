@@ -63,8 +63,5 @@
     <None Include="help.md">
       <Filter>资源文件</Filter>
     </None>
-    <None Include="readme.md">
-      <Filter>资源文件</Filter>
-    </None>
   </ItemGroup>
 </Project>
