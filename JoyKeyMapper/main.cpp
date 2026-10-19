@@ -412,10 +412,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         hComboProgram = CreateWindowW(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWN | WS_VSCROLL | WS_BORDER,
             10, 145, 150, 150, hWnd, (HMENU)IDC_COMBO_PROGRAM, NULL, NULL);
         refreshAllVisiblePrograms(hComboProgram);
-        /*
+
         CreateWindowW(L"BUTTON", L"刷新设备", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             165, 145, 80, 22, hWnd, (HMENU)IDC_BTN_REFRESH, NULL, NULL);
-        */
+
         CreateWindowW(L"BUTTON", L"连接", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             250, 145, 40, 22, hWnd, (HMENU)IDC_BTN_CONN, NULL, NULL);
 
@@ -462,7 +462,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
         // 初始刷新设备
         PostMessage(hWnd, WM_COMMAND, MAKEWPARAM(IDC_BTN_REFRESH, BN_CLICKED), 0);
-        connManage.startReadThread();
+        connManage.startReadThread(hWnd);
 
         break;
     }
@@ -663,7 +663,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                     }
 
                     InvalidateRect(hListDevices, NULL, TRUE);
-
                     SendMessage(hListBtns, LB_RESETCONTENT, 0, 0);
 
                     lfFilename = connManage.getNmMac() + "\\" + g_selectedProgram + ".conf";
@@ -683,11 +682,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 break;
             }
             case IDC_LIST_BTNS: {
-                if (wmEvent == LBN_DBLCLK) {
+                if (wmEvent == LBN_DBLCLK) { // 双击追加编辑框
                     int idx = SendMessage(hListBtns, LB_GETCURSEL, 0, 0);
                     if (idx != LB_ERR && idx < devBtns.size()) {
                         std::string keyword = devBtns[idx];
                         std::wstring wKeyword = UTF8ToWString(keyword);
+
+                        // 获取光标位置
+                        DWORD selRange = SendMessage(hEditConfig, EM_GETSEL, 0, 0);
+                        int start = LOWORD(selRange);
+                        int end = HIWORD(selRange);
 
                         // 获取编辑框当前内容
                         int len = GetWindowTextLength(hEditConfig);
@@ -705,11 +709,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                             wKeyword = UTF8ToWString(pre) + wKeyword;
                         }
                         wKeyword = L"{" + wKeyword + L"}";
-                        std::wstring newText = currentText + wKeyword;
+
+                        std::wstring newText = currentText.substr(0, start) + wKeyword + currentText.substr(end);
                         SetWindowTextW(hEditConfig, newText.c_str());
 
-                        // 将光标移动到最后，方便继续输入
-                        SendMessage(hEditConfig, EM_SETSEL, len + 1 + (int)wKeyword.length(), len + 1 + (int)wKeyword.length());
+                        // 将光标移动到插入位置
+                        int newCursorPos = start + static_cast<int>(wKeyword.length());
+                        SendMessage(hEditConfig, EM_SETSEL, newCursorPos, newCursorPos);
                         SetFocus(hEditConfig);
                     }
                 }
@@ -726,11 +732,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 break;
             }
             case IDC_LIST_KEYWORDS: {
-                if (wmEvent == LBN_DBLCLK) {
+                if (wmEvent == LBN_DBLCLK) {// 双击追加编辑框
                     int idx = SendMessage(hListKeywords, LB_GETCURSEL, 0, 0);
                     if (idx != LB_ERR && idx < keys.size()) {
                         std::string keyword = keys[idx];
                         std::wstring wKeyword = UTF8ToWString(keyword);
+
+                        // 获取光标位置
+                        DWORD selRange = SendMessage(hEditConfig, EM_GETSEL, 0, 0);
+                        int start = LOWORD(selRange);
+                        int end = HIWORD(selRange);
 
                         // 获取编辑框当前内容
                         int len = GetWindowTextLength(hEditConfig);
@@ -738,22 +749,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         GetWindowTextW(hEditConfig, buffer.data(), len + 1);
                         std::wstring currentText(buffer.data());
 
-                        std::wstring newText = currentText + wKeyword;
+                        std::wstring newText = currentText.substr(0, start) + wKeyword + currentText.substr(end);
                         SetWindowTextW(hEditConfig, newText.c_str());
 
-                        // 将光标移动到最后，方便继续输入
-                        SendMessage(hEditConfig, EM_SETSEL, len + 1 + (int)wKeyword.length(), len + 1 + (int)wKeyword.length());
+                        // 将光标移动到插入位置
+                        int newCursorPos = start + static_cast<int>(wKeyword.length());
+                        SendMessage(hEditConfig, EM_SETSEL, newCursorPos, newCursorPos);
                         SetFocus(hEditConfig);
                     }
                 }
                 break;
             }
             case IDC_LIST_FHS: {
-                if (wmEvent == LBN_DBLCLK) {
+                if (wmEvent == LBN_DBLCLK) {// 双击追加编辑框
                     int idx = SendMessage(hListFhs, LB_GETCURSEL, 0, 0);
                     if (idx != LB_ERR && idx < fhs.size()) {
                         std::string keyword = fhs[idx];
                         std::wstring wKeyword = UTF8ToWString(keyword);
+
+                        // 获取光标位置
+                        DWORD selRange = SendMessage(hEditConfig, EM_GETSEL, 0, 0);
+                        int start = LOWORD(selRange);
+                        int end = HIWORD(selRange);
 
                         // 获取编辑框当前内容
                         int len = GetWindowTextLength(hEditConfig);
@@ -761,11 +778,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                         GetWindowTextW(hEditConfig, buffer.data(), len + 1);
                         std::wstring currentText(buffer.data());
 
-                        std::wstring newText = currentText + wKeyword;
+                        std::wstring newText = currentText.substr(0, start) + wKeyword + currentText.substr(end);
                         SetWindowTextW(hEditConfig, newText.c_str());
 
-                        // 将光标移动到最后，方便继续输入
-                        SendMessage(hEditConfig, EM_SETSEL, len + 1 + (int)wKeyword.length(), len + 1 + (int)wKeyword.length());
+                        // 将光标移动到插入位置
+                        int newCursorPos = start + static_cast<int>(wKeyword.length());
+                        SendMessage(hEditConfig, EM_SETSEL, newCursorPos, newCursorPos);
                         SetFocus(hEditConfig);
                     }
                 }
@@ -795,6 +813,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             }
             case IDC_BTN_REFRESH: {
                 SendMessage(hListDevices, LB_RESETCONTENT, 0, 0);
+                connManage.refreshDevices();
                 g_deviceList = &connManage.getDrivers();
                 for (const auto& dev : *g_deviceList) {
                     SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.name.c_str());
@@ -975,6 +994,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             SendMessageW(hListDevices, LB_ADDSTRING, 0, (LPARAM)dev.name.c_str());
         }
         return 0;
+    }
+    case WM_DEVICE_AUTO_DISCONNECTED: {
+        int idx = (int)wParam;
+        SimpleLogger::LOG_INFO("Auto-disconnecting device index: {}", idx);
+
+        // 执行断开
+        connManage.devDisconnect(idx);
+
+        InvalidateRect(hListDevices, NULL, TRUE);
+        SendMessage(hListBtns, LB_RESETCONTENT, 0, 0);
+
+        devBtns = connManage.getDevBtns(0);
+        if (devBtns.size() > 0) {
+            std::sort(devBtns.begin(), devBtns.end());
+            devBtns.erase(std::unique(devBtns.begin(), devBtns.end()), devBtns.end());
+        }
+        for (const auto& kw : devBtns) {
+            SendMessageW(hListBtns, LB_ADDSTRING, 0, (LPARAM)UTF8ToWString(kw).c_str());
+        }
+
+        break;
     }
     case WM_TIMER: {
         /*

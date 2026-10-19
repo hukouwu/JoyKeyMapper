@@ -13,6 +13,8 @@
 #include "CMGamepadConnection.h"
 #include "JoyConConnection.h"
 
+#define WM_DEVICE_AUTO_DISCONNECTED (WM_USER + 111)
+
 class ConnManage : public IConnection {
 private:
     int defInterval = 0;
@@ -22,6 +24,8 @@ private:
     std::function<void(const EvState&)> m_onStateChanged;
     std::set<unsigned long long> runedDrivers;
     std::string _nmMac = "ConnManage";
+    HWND hMainWnd = NULL;
+    int connState = 0;
 public:
     ConnManage() = default;
     ~ConnManage() override {
@@ -91,6 +95,33 @@ public:
         return allNmMac;
     }
 
+    void refreshDevices() {
+        SimpleLogger::LOG_INFO("Refreshing device list...");
+
+        for (auto& driver : IConnection::m_drivers) {
+            driver.fresh = false;
+        }
+
+        for (const auto& registrar : IConnection::g_deviceRegistrars) {
+            try {
+                registrar();
+            }
+            catch (const std::exception& e) {
+                SimpleLogger::LOG_ERROR("Device registrar failed: {}", e.what());
+            }
+        }
+
+        for (auto it = IConnection::m_drivers.begin(); it != IConnection::m_drivers.end(); ) {
+            if (!it->fresh) {
+                it = IConnection::m_drivers.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
+
+        SimpleLogger::LOG_INFO("Refresh complete. Total devices: {}", IConnection::m_drivers.size());
+    }
     std::vector<DriverInfo>& getDrivers() {
         return IConnection::m_drivers;
     }
@@ -120,20 +151,37 @@ public:
     bool devDisconnect(int index) override {
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
 
-        for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-            if ((*it)->devDisconnect(index)) {
-                m_connections.erase(it);
-                break;
+        int cnt = 100;
+        while (cnt--) {
+            if (connState == 0) {
+                connState = 1;
+                Sleep(100);
+                continue;
             }
-        }
+            if (connState != 2) {
+                Sleep(100);
+                continue;
+            }
 
-        for (int i = 0; i < m_connections.size(); i++) {
-            auto& connItem = m_connections[i];
-            int dIdx = connItem->getIndex();
-            IConnection::m_drivers[dIdx].connIdx = i;
-        }
+            for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
+                if ((*it)->devDisconnect(index)) {
+                    int index = (*it)->getIndex();
+                    m_connections.erase(it);
+                    IConnection::m_drivers[index].connIdx = -1;
+                    break;
+                }
+            }
 
-        return true;
+            for (int i = 0; i < m_connections.size(); i++) {
+                auto& connItem = m_connections[i];
+                int dIdx = connItem->getIndex();
+                IConnection::m_drivers[dIdx].connIdx = i;
+            }
+
+            connState = 3;
+            return true;
+        }
+        return false;
     }
 
     bool setDataView(int index) override {
@@ -152,19 +200,40 @@ public:
         }
     }
 
-    void startReadThread() {
+    void startReadThread(HWND mainWnd) {
+        hMainWnd = mainWnd;
         m_readThread = std::thread(&ConnManage::readLoop, this, std::ref(state));
     }
     int readLoop(EvState& state) override {
         int tryinterval = interval > 10 ? interval : 10;
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
         while (true) {
+            if (connState != 0) {
+                if (connState == 1) {
+                    connState = 2;
+                    Sleep(100);
+                    continue;
+                }
+                if (connState == 2) {
+                    Sleep(100);
+                    continue;
+                }
+                if (connState == 3) {
+                    connState = 0;
+                }
+            }
+
             state.sClear();
             std::queue<IConnection*> que;
             for (std::unique_ptr<IConnection>& conn : m_connections) {
                 int retType = conn->readLoop(state);
                 if (retType == 2) {
                     que.push(conn.get());
+                }
+                else if (retType == -1) {
+                    // 自动断开
+                    SimpleLogger::LOG_INFO("已自动断开{}", conn->getNmMac());
+                    PostMessage(hMainWnd, WM_DEVICE_AUTO_DISCONNECTED, (WPARAM)conn->getIndex(), 0);
                 }
             }
 

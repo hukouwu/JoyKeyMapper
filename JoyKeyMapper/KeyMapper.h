@@ -479,9 +479,14 @@ public:
         int delay = 0;
     };
     struct keyPropsOut {
+        std::string name;
         std::vector<double> props;
         int out = 0;
         KeyExpr* keyExpr;
+    };
+    struct keyUpRec {
+        std::string name;
+        int index;
     };
     void sendKeyEvent(std::vector<std::vector<KeyExpr>>& sendKeys, const EvState& state) {
         if (sendKeys.empty()) return;
@@ -490,7 +495,7 @@ public:
         LpInfo curLpInfo;
         for (int nodeInd = 0; nodeInd < sendKeys.size(); nodeInd++) {// 循环多组按键
             std::vector<KeyExpr>& keys = sendKeys[nodeInd];
-            std::map<std::string, keyPropsOut> nmKeyPropsOut; // 一组按键名称和传参
+            std::vector<keyPropsOut> nmKeyPropsOut; // 一组按键名称和传参
             bool skipSend = false;
 
             for (KeyExpr& key : keys) {
@@ -552,31 +557,32 @@ public:
                 if (key.key == "") {
                     continue;
                 }
-                nmKeyPropsOut[key.key] = { dts, key.outNum, &key };
+                nmKeyPropsOut.push_back({ key.key, dts, key.outNum, &key });
             }
 
             if (skipSend) {
                 continue;
             }
 
-            std::vector<std::string> keyNms;
+            std::vector<keyUpRec> keyNms;
             std::vector<INPUT> inputs;
             int finDefIntev = -1;
             int finUserIntev = -1;
             // 按下键
-            for (auto& [keyNm, keyDts] : nmKeyPropsOut) {
-                auto [intev, optInput] = KvInput::parseDownInput(keyNm, keyDts.props);
+            for (int i = 0; i < nmKeyPropsOut.size(); i++) {
+                auto& keyProp = nmKeyPropsOut[i];
+                auto [intev, optInput] = KvInput::parseDownInput(keyProp.name, keyProp.props);
                 if (!optInput.has_value()) {
                     continue;
                 }
                 finDefIntev = intev;
-                finUserIntev = keyDts.out;
-                keyNms.push_back(keyNm);
+                finUserIntev = keyProp.out;
+                keyNms.push_back({ keyProp.name, i });
                 inputs.push_back(optInput.value());
                 if (state.debugFlag) {
-                    SimpleLogger::LOG_INFO("按下键: {}", keyNm);
+                    SimpleLogger::LOG_INFO("按下键: {}", keyProp.name);
                 }
-                KvInput::setDown(keyNm);
+                KvInput::setDown(keyProp.name);
             }
             if (state.macIntev == -1) {
                 state.macIntev = finUserIntev > 0? finUserIntev : finDefIntev;
@@ -588,16 +594,17 @@ public:
             inputs.clear();
             // 释放键
             for (int i = keyNms.size() - 1; i >= 0; i--) {
-                keyPropsOut& kpo = nmKeyPropsOut[keyNms[i]];
+                auto& keyNm = keyNms[i];
+                keyPropsOut& kpo = nmKeyPropsOut[keyNm.index];
                 auto& keyDts = kpo.props;
-                std::optional<INPUT> optInput = KvInput::parseUpInput(keyNms[i], keyDts);
+                std::optional<INPUT> optInput = KvInput::parseUpInput(keyNm.name, keyDts);
                 if (!optInput.has_value()) {
-                    KvInput::setUp(keyNms[i]);
+                    KvInput::setUp(keyNm.name);
                     continue;
                 }
                 if (kpo.keyExpr->upEval.isEmpty) {// 立即释放
                     inputs.push_back(optInput.value());
-                    KvInput::setUp(keyNms[i]);
+                    KvInput::setUp(keyNm.name);
                 }
                 else {// 延迟释放
                     SimpleLogger::LOG_INFO("加入延迟释放: {}", kpo.keyExpr->key);

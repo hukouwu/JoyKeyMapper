@@ -11,6 +11,61 @@
 #include "EvState.h"
 
 class CMGamepadConnection : public IConnection {
+public:
+    static void registerSelf() {
+        g_deviceRegistrars.push_back([]() -> bool {
+            SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister");
+
+            BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams = { 0 };
+            searchParams.dwSize = sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS);
+            searchParams.fReturnAuthenticated = TRUE;
+            searchParams.fReturnConnected = TRUE;
+            searchParams.fIssueInquiry = TRUE;
+            searchParams.fReturnUnknown = TRUE;
+            searchParams.cTimeoutMultiplier = 3;
+
+            BLUETOOTH_DEVICE_INFO deviceInfo;
+            ZeroMemory(&deviceInfo, sizeof(BLUETOOTH_DEVICE_INFO));
+            deviceInfo.dwSize = sizeof(BLUETOOTH_DEVICE_INFO);
+
+            // 蓝牙设备
+            HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&searchParams, &deviceInfo);
+            if (hFind == NULL) {
+                SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister error：未找到已配对的设备");
+                return false;
+            }
+            else {
+                do {
+                    std::wstring wName(deviceInfo.szName);
+                    if (wName.find(L"CMGamepad") != std::wstring::npos) {
+                        auto it = std::find_if(IConnection::m_drivers.begin(), IConnection::m_drivers.end(),
+                            [&](const IConnection::DriverInfo& driver) {
+                                return driver.mac == deviceInfo.Address.ullLong;
+                        });
+                        if (it != IConnection::m_drivers.end()) {
+                            it->fresh = true;
+                        }
+                        else {
+                            IConnection::DriverInfo driverInfo;
+                            driverInfo.name = WStringToUTF8(deviceInfo.szName);
+                            driverInfo.mac = deviceInfo.Address.ullLong;
+                            driverInfo.nameMac = driverInfo.name + "_" + std::to_string(driverInfo.mac);
+                            driverInfo.factory = []() -> std::unique_ptr<IConnection> {
+                                return std::make_unique<CMGamepadConnection>();
+                                };
+                            driverInfo.fresh = true;
+
+                            IConnection::m_drivers.push_back(driverInfo);
+                            SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister 获取蓝牙设备: {}:{:012X}", driverInfo.name, driverInfo.path);
+                        }
+                    }
+                } while (BluetoothFindNextDevice(hFind, &deviceInfo));
+                BluetoothFindDeviceClose(hFind);
+            }
+
+            return true;
+        });
+    }
 private:
     std::string _aliasName;
     std::string _nmMac;
@@ -578,46 +633,9 @@ private:
 };
 
 
-static bool autoRegister1 = []() {
-    SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister");
-
-    BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams = { 0 };
-    searchParams.dwSize = sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS);
-    searchParams.fReturnAuthenticated = TRUE;
-    searchParams.fReturnConnected = TRUE;
-    searchParams.fIssueInquiry = TRUE;
-    searchParams.fReturnUnknown = TRUE;
-    searchParams.cTimeoutMultiplier = 3;
-
-    BLUETOOTH_DEVICE_INFO deviceInfo;
-    ZeroMemory(&deviceInfo, sizeof(BLUETOOTH_DEVICE_INFO));
-    deviceInfo.dwSize = sizeof(BLUETOOTH_DEVICE_INFO);
-
-    // 蓝牙设备
-    HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&searchParams, &deviceInfo);
-    if (hFind == NULL) {
-        SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister error：未找到已配对的设备");
-        return false;
+static struct CMGamepadRegistrarInit {
+    CMGamepadRegistrarInit() {
+        CMGamepadConnection::registerSelf();
     }
-    else {
-        do {
-            std::wstring wName(deviceInfo.szName);
-            if (wName.find(L"CMGamepad") != std::wstring::npos) {
-                IConnection::DriverInfo driverInfo;
-                driverInfo.name = WStringToUTF8(deviceInfo.szName);
-                driverInfo.mac = deviceInfo.Address.ullLong;
-                driverInfo.nameMac = driverInfo.name + "_" + std::to_string(driverInfo.mac);
-                driverInfo.factory = []() -> std::unique_ptr<IConnection> {
-                    return std::make_unique<CMGamepadConnection>();
-                };
-
-                IConnection::m_drivers.push_back(driverInfo);
-                SimpleLogger::LOG_INFO("CMGamepadConnection autoRegister 获取蓝牙设备: {}:{:012X}", driverInfo.name, driverInfo.path);
-            }
-        } while (BluetoothFindNextDevice(hFind, &deviceInfo));
-        BluetoothFindDeviceClose(hFind);
-    }
-
-    return true;
-    }();
+} cmGamepadRegInit;
 

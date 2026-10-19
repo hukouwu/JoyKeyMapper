@@ -32,7 +32,7 @@
 // 抽象基类
 class IConnection {
 public:
-    using DeviceMatcher = std::function<bool(const std::string&)>;
+    using DeviceRegistrar = std::function<bool()>;
     using ConnectionFactory = std::function<std::unique_ptr<IConnection>()>;
 
     struct DriverInfo {
@@ -43,6 +43,7 @@ public:
         ConnectionFactory factory;
         int connIdx = -1;
         int att;
+        bool fresh = false;
     };
     struct RangeEntry {
         int min;
@@ -52,6 +53,7 @@ public:
         float scale;
     };
 
+    inline static std::vector<DeviceRegistrar> g_deviceRegistrars;
     inline static std::vector<DriverInfo> m_drivers;
 public:
     virtual ~IConnection() = default;
