@@ -59,9 +59,10 @@ public:
 
     // 加载配置文件
     bool loadConfig(const std::string& filename, ConnManage& connManage) {
+        confFlag = false;
         std::ifstream file(filename);
         if (!file.is_open()) {
-            std::cerr << "[警告] 未找到配置文件: " << filename << std::endl;
+            SimpleLogger::LOG_INFO("[警告] 未找到配置文件: {}", filename);
             return false;
         }
 
@@ -157,9 +158,9 @@ public:
             }
         }
         sm_downedNs.push_back({ 0, curDownedK });
+        confFlag = true;
 
         file.close();
-        std::cout << "[信息] 共加载 " << sm_ruleMatchs.size() << " 条映射规则" << std::endl;
         
         connManage.reloadConf(confs);
         return true;
@@ -167,7 +168,7 @@ public:
 
     // 短事件
     std::tuple<std::vector<std::vector<KeyExpr>>, int> matchSKeys(const EvState& state) {
-        if (sm_downedNs[0].downedKs.size() <= 0) {
+        if (!confFlag) {
             return { };
         }
         {
@@ -337,6 +338,9 @@ public:
     }
     // 长按刷新规则
     bool freshSKeys(const EvState& state) {
+        if (!confFlag) {
+            return false;
+        }
         std::vector<DKRecord>* downedK = &sm_downedNs.back().downedKs;
         if(state.macInd >= 0) {
             RuleExpr* rule = &(sm_ruleMatchs[state.macInd].rules.back());
@@ -856,4 +860,5 @@ public:
     std::vector<std::vector<int>> ct_downedKs;
     std::map<std::string, int> glbPms;
     std::vector<DlUpKey> delayUpKeys;
+    bool confFlag = false;
 };
