@@ -12,14 +12,13 @@ public:
     inline static const std::vector<std::string> allKeys = {
             "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
             "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-            "NUM0", "NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8", "NUM9",
-            "NUMPAD0", "MOUSE_LBT", "MOUSE_RBT","MOUSE_MBT", "MOUSE_MOV", "MOUSE_ABM", "MOUSE_VRO", "MOUSE_HRO",
-            "ENTER", "RETURN", "ESCAPE", "ESC", "SPACE", "TAB",
-            "BACKSPACE", "BKSP", "UP", "DOWN", "LEFT", "RIGHT",
+            "MOUSE_LBT", "MOUSE_RBT","MOUSE_MBT", "MOUSE_MOV", "MOUSE_ABM", "MOUSE_VRO", "MOUSE_HRO",
+            "ENTER", "ESC", "SPACE", "TAB",
+            "BKSP", "UP", "DOWN", "LEFT", "RIGHT",
             "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-            "CTRL", "CONTROL", "SHIFT", "ALT",
-            "INSERT", "INS", "DELETE", "DEL", "HOME", "END",
-            "PAGEUP", "PGUP", "PAGEDOWN", "PGDN"
+            "CTRL", "SHIFT", "ALT",
+            "INS", "DEL", "HOME", "END",
+            "PGUP", "PGDN"
     };
     static std::string ToUpper(const std::string& str) {
         std::string upper = str;

@@ -22,7 +22,6 @@ struct EvState {
     mutable int gctTm = 0;
     mutable bool isng = false;
     mutable bool redyMac = false;
-    mutable bool debugFlag = false;
     // 按下计时
     mutable std::map<std::string, int> _ct;
 

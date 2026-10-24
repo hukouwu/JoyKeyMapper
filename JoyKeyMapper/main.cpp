@@ -72,8 +72,8 @@ std::string showBtnCnfName = "▶";
 std::vector<IConnection::DriverInfo>* g_deviceList = nullptr;
 std::vector<std::string> devBtns;
 std::vector<DevBtnsVarInfo> devBtnsVar = { {"_ct.", 1, 0}, {showBtnCnfName, 0, 0} };
-std::map<std::string, bool> funVars;
-std::vector<std::string> fhs = { "+", "-", "*", "/", "<", ">", "=", "!", "?", ":", "&&", "||", "(", ")", ",", ";", "[", "]" , "→", "_delay", "_new" };
+std::map<std::string, int> funVars;
+std::vector<std::string> fhs = { "+", "-", "*", "/", "<", ">", "=", "!", "?", ":", "&&", "||", "(", ")", ",", ";", "[", "]" , "→", "_delay", "$"};
 std::vector<std::string> keys = KvInput::allKeys;
 
 
@@ -113,15 +113,19 @@ void ProcessShortEvents(const EvState& state) {
 }
 
 void showNewBtn(const EvState& state) {
-    if (!funVars[showBtnCnfName]) {
-        state.debugFlag = false;
+    if (funVars[showBtnCnfName] < 0) return;
+    if (funVars[showBtnCnfName] == 0) {
+        SimpleLogger::GetInstance().setLevle(SimpleLogger::LogLevel::M_INFO);
         return;
     }
-    state.debugFlag = true;
+    if (funVars[showBtnCnfName] == 1) {
+        SimpleLogger::GetInstance().setLevle(SimpleLogger::LogLevel::M_DEBUG);
+        funVars[showBtnCnfName] = 2;
+    }
 
     const std::string& btn = state.nsbKvs[0];
-    SimpleLogger::LOG_INFO("stick value: [{}]", mapToString(state.btnVal));
-    SimpleLogger::LOG_INFO("down buttons: [{}]。up buttons: [{}]", mapToString(state.dsbKvs), mapToString(state.usbKvs));
+    SimpleLogger::LOG_DEBUG("stick value: [{}]", mapToString(state.btnVal));
+    SimpleLogger::LOG_DEBUG("down buttons: [{}]。up buttons: [{}]", mapToString(state.dsbKvs), mapToString(state.usbKvs));
 
     size_t btnpos = btn.find('@');
     std::string prebtn = (btnpos == std::string::npos) ? btn : btn.substr(0, btnpos);

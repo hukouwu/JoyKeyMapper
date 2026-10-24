@@ -485,6 +485,30 @@ public:
 {L}&&{LSD}→MOUSE_VRO(-120)
 {L}&&{LSU}→MOUSE_VRO(120)
 {ZL}&&({LSR}||{LSL}||{LSD}||{LSU})→MOUSE_LBT:(1000,{ZL-})+MOUSE_MOV( ({LSR}-{LSL})/150, ({LSD}-{LSU})/150 )
+{SL_L}&&{ZL}→ALT:(1000,{SL_L-})+TAB
+{SL_L},{ZL}→SHIFT+MOUSE_LBT
+{SL_L},{UP}→CTRL+C
+{SL_L},{RIGHT}→CTRL+V
+{SL_L},{DOWN}→CTRL+S
+{SL_L},{LEFT}→CTRL+A
+{SL_L},{SL_L},{UP}→CTRL+Z
+{SL_L},{SL_L},{RIGHT}→CTRL+Y
+{SL_L},{SL_L},{DOWN}→CTRL+F
+{SL_L},{SL_L},{LEFT}→CTRL+D
+{MINUS}→$_flg0( {_flg0}>0?0:1 )
+{CAPTURE}→$_flg0( {_flg0}<0?0:-1 )
+{_flg0}==0&&{UP}→1
+{_flg0}==0&&{RIGHT}→2
+{_flg0}==0&&{DOWN}→3
+{_flg0}==0&&{LEFT}→4
+{_flg0}==1&&{UP}→SPACE
+{_flg0}==1&&{RIGHT}→TAB
+{_flg0}==1&&{DOWN}→ENTER
+{_flg0}==1&&{LEFT}→BKSP
+{_flg0}==-1&&{UP}→UP
+{_flg0}==-1&&{RIGHT}→RIGHT
+{_flg0}==-1&&{DOWN}→DOWN
+{_flg0}==-1&&{LEFT}→LEFT
 )xxx";
         }
 
@@ -502,6 +526,30 @@ public:
 {R}&&{RSD}→MOUSE_VRO(-120)
 {R}&&{RSU}→MOUSE_VRO(120)
 {ZR}&&({RSR}||{RSL}||{RSD}||{RSU})→MOUSE_LBT:(1000,{ZR-})+MOUSE_MOV( ({RSR}-{RSL})/150, ({RSD}-{RSU})/150 )
+{SR_R}&&{ZR}→ALT:(1000,{SR_R-})+TAB
+{SR_R},{ZR}→SHIFT+MOUSE_LBT
+{SR_R},{X}→CTRL+C
+{SR_R},{A}→CTRL+V
+{SR_R},{B}→CTRL+S
+{SR_R},{Y}→CTRL+A
+{SR_R},{SR_R},{X}→CTRL+Z
+{SR_R},{SR_R},{A}→CTRL+Y
+{SR_R},{SR_R},{B}→CTRL+F
+{SR_R},{SR_R},{Y}→CTRL+D
+{PLUS}→$_flg0( {_flg0}>0?0:1 )
+{HOME}→$_flg0( {_flg0}<0?0:-1 )
+{_flg0}==0&&{X}→1
+{_flg0}==0&&{A}→2
+{_flg0}==0&&{B}→3
+{_flg0}==0&&{Y}→4
+{_flg0}==1&&{X}→SPACE
+{_flg0}==1&&{A}→TAB
+{_flg0}==1&&{B}→ENTER
+{_flg0}==1&&{Y}→BKSP
+{_flg0}==-1&&{X}→UP
+{_flg0}==-1&&{A}→RIGHT
+{_flg0}==-1&&{B}→DOWN
+{_flg0}==-1&&{Y}→LEFT
 )xxx";
         }
     }

@@ -36,19 +36,36 @@ consteval void check_format_string(const char* fmt) {
 
 class SimpleLogger {
 public:
-    enum class LogLevel { M_INFO, M_ERROR };
+    enum class LogLevel { M_DEBUG, M_INFO, M_WARM, M_ERROR };
+    friend bool operator<(LogLevel lhs, LogLevel rhs) {
+        return static_cast<int>(lhs) < static_cast<int>(rhs);
+    }
 
     static SimpleLogger& GetInstance() {
         static SimpleLogger instance;
         return instance;
     }
 
+    inline static LogLevel m_level = LogLevel::M_INFO;
+
+    template<typename... Args>
+    static void LOG_DEBUG(const std::string fmt, Args&&... args) {
+        if (LogLevel::M_DEBUG < m_level) return;
+        GetInstance().log(LogLevel::M_DEBUG, fmt, std::forward<Args>(args)...);
+    }
     template<typename... Args>
     static void LOG_INFO(const std::string fmt, Args&&... args) {
+        if (LogLevel::M_INFO < m_level) return;
         GetInstance().log(LogLevel::M_INFO, fmt, std::forward<Args>(args)...);
     }
     template<typename... Args>
+    static void LOG_WARM(const std::string fmt, Args&&... args) {
+        if (LogLevel::M_WARM < m_level) return;
+        GetInstance().log(LogLevel::M_WARM, fmt, std::forward<Args>(args)...);
+    }
+    template<typename... Args>
     static void LOG_ERROR(const std::string fmt, Args&&... args) {
+        if (LogLevel::M_ERROR < m_level) return;
         GetInstance().log(LogLevel::M_ERROR, fmt, std::forward<Args>(args)...);
     }
 
@@ -99,6 +116,10 @@ public:
             });
         }
         m_cv.notify_one();
+    }
+
+    void setLevle(LogLevel level) {
+        m_level = level;
     }
 
     ~SimpleLogger() {
@@ -164,7 +185,23 @@ private:
                 char time_buf[32] = { 0 };
                 std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_now);
 
-                const char* level_str = (msgEntry.level == LogLevel::M_INFO) ? "INFO" : "ERROR";
+                const char* level_str = "";
+                switch (msgEntry.level) {
+                case LogLevel::M_DEBUG:
+                    level_str = "DEBUG";
+                    break;
+                case LogLevel::M_INFO:
+                    level_str = "INFO";
+                    break;
+                case LogLevel::M_WARM:
+                    level_str = "WARN";
+                    break;
+                case LogLevel::M_ERROR:
+                    level_str = "ERROR";
+                    break;
+                default:
+                    break;
+                }
 
                 char log_buf[512] = {0};
                 int written = snprintf(log_buf, sizeof(log_buf),

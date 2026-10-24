@@ -36,9 +36,9 @@ public:
         int ruleInd;
         int nodeSign;
         int nodeInd;
+        bool del = false;
     };
     struct DNRecord {
-        int mcRuleCnt;
         std::vector< DKRecord> downedKs;
     };
     struct RuleMatch {
@@ -116,20 +116,25 @@ public:
             }
 
             if (line[0] == '#') continue;
+            SimpleLogger::LOG_INFO("解析: {}", line);
             // 短事件：按钮1+按钮2=按键1+按键2
             std::string splitChar = "→";
             size_t equalPos = line.find(splitChar);
             if (equalPos == std::string::npos) {
-                std::cerr << "[警告] 第" << lineNum << "行格式错误: " << line << std::endl;
+                SimpleLogger::LOG_INFO("格式错误1");
                 continue;
             }
 
             std::string rulesExpStr = line.substr(0, equalPos);
             std::vector<RuleExpr> ruleGroups = getRuleExpre(rulesExpStr, connManage);
+            if (ruleGroups.empty()) {
+                SimpleLogger::LOG_INFO("rule表达式可能有误{}", rulesExpStr);
+                continue;
+            }
             std::string keysExpStr = line.substr(equalPos + splitChar.size());
             std::vector<std::vector<KeyExpr>> toKeys = getKeyPropExpre(keysExpStr);
-            if (ruleGroups.empty() || toKeys.empty()) {
-                std::cerr << "[警告] 第" << lineNum << "行格式错误: " << line << std::endl;
+            if (toKeys.empty()) {
+                SimpleLogger::LOG_INFO("key表达式可能有误{}", keysExpStr);
                 continue;
             }
 
@@ -148,17 +153,18 @@ public:
                             break;
                         }
                     }
-                    
                 }
-                curDownedK.push_back({ ind, 0, 0 });
+                confFlag = true;
+                curDownedK.push_back({ ind, 0, -1 });
                 if (ctFlag) {
                     sm_ruleMatchs.back().ctFlg = true;
                 }
+                SimpleLogger::LOG_INFO("成功");
                 ind++;
             }
         }
-        sm_downedNs.push_back({ 0, curDownedK });
-        confFlag = true;
+        sm_downedNs.push_back({ curDownedK });
+        ct_downedKs.push_back(std::vector<int>());
 
         file.close();
         
@@ -193,9 +199,7 @@ public:
         if (state.ttype == 0) {
             if (state.macInd >= 0) {
                 RuleMatch* match = &sm_ruleMatchs[state.macInd];
-                if (state.debugFlag) {
-                    SimpleLogger::LOG_INFO("延续规则{}", state.macInd);
-                }
+                SimpleLogger::LOG_DEBUG("延续规则{}", state.macInd);
                 return std::make_tuple(match->keys, state.macInd);
             }
         }
@@ -217,51 +221,56 @@ public:
         int tmpDNRecordCnt = 0;
         if (!state.isng) {
             if (state.ttype & 2) {
+                SimpleLogger::LOG_DEBUG("放");
                 isRf = true;
             }
             else {
+                SimpleLogger::LOG_DEBUG("按");
                 sm_downedNs.back().downedKs.clear();
-                sm_downedNs.back().mcRuleCnt = 0;
+                ct_downedKs.back().clear();
             }
             curDownedN = &sm_downedNs.back();
         }
         else {
             if (state.ttype == 2) {
+                SimpleLogger::LOG_DEBUG("首放");
                 curDownedN = &tmpDNRecord;
                 tmpDNRecordCnt++;
             }
             else {
                 if (sm_downedNs.back().downedKs.size() <= 0) {
+                    SimpleLogger::LOG_DEBUG("重按");
                     sm_downedNs.erase(sm_downedNs.begin() + 2, sm_downedNs.end());
+                    sm_downedNs.back().downedKs.clear();
                     curDownedN = &sm_downedNs.back();
-                    curDownedN->mcRuleCnt = 0;
+                    ct_downedKs.erase(ct_downedKs.begin() + 2, ct_downedKs.end());
+                    ct_downedKs.back().clear();
                 }
                 else {
-                    sm_downedNs.push_back({ 0, std::vector<DKRecord>() });
+                    SimpleLogger::LOG_DEBUG("首按");
+                    sm_downedNs.push_back({ std::vector<DKRecord>() });
                     curDownedN = &sm_downedNs.back();
+                    ct_downedKs.push_back(std::vector<int>());
                 }
-                ct_downedKs.clear();
-                ct_downedKs.push_back(std::vector<int>());
             }
         }
 
     mclp:
         std::vector<DKRecord>* curDownedK = &curDownedN->downedKs;
-        int matchedNodePos = sm_downedNs.size() - 2 + tmpDNRecordCnt;
-        std::vector<DKRecord>& lstDownedK = sm_downedNs[matchedNodePos].downedKs;
+        int lstNodePos = sm_downedNs.size() - 2 + tmpDNRecordCnt;
+        std::vector<DKRecord>& lstDownedK = sm_downedNs[lstNodePos].downedKs;
 
-        ct_downedKs.push_back(std::vector<int>());
         std::vector<int>* curctDK = &ct_downedKs.back();
-        std::vector<int>& lstctDK = ct_downedKs[matchedNodePos];
+        std::vector<int>& lstctDK = ct_downedKs[lstNodePos];
         lstctDK.clear();
 
         bool isMatch = false;
         for (int i = 0; i < lstDownedK.size(); i++) {
             DKRecord& lstdkRecord = lstDownedK[i];
-            int cCatchedNodePos = lstdkRecord.nodeInd;
-            if (cCatchedNodePos < 0) {
+            if (lstdkRecord.del) {
                 continue;
             }
+            int cCatchedNodePos = lstdkRecord.nodeInd + 1;
             int ind = lstdkRecord.ruleInd;
             int madtchedNodeSign = lstdkRecord.nodeSign;
             RuleMatch* match = &sm_ruleMatchs[ind];
@@ -278,7 +287,6 @@ public:
                             isMatch = true;
                             madtchedNodeSign |= 1 << cCatchedNodePos;
                             curDownedK->push_back({ ind, madtchedNodeSign, cCatchedNodePos });
-                            curDownedN->mcRuleCnt++;
                         }
                     }
                 }
@@ -307,7 +315,7 @@ public:
                 continue;
             }
 
-            if (matchedNodePos + 1 == match->rules.size()) {
+            if (lstNodePos + 1 == match->rules.size()) {
                 for (i++; i < lstDownedK.size(); i++) {
                     if (sm_ruleMatchs[lstDownedK[i].ruleInd].ctFlg) {
                         lstctDK.push_back(i);
@@ -315,14 +323,15 @@ public:
                 }
                 state.macInd = ind;
                 state.macIntev = -1;
-                if (state.debugFlag) {
-                    SimpleLogger::LOG_INFO("匹配规则{}", ind);
-                }
+                SimpleLogger::LOG_DEBUG("匹配规则{}", ind);
                 return std::make_tuple(match->keys, ind);
+            }
+            else {
+                SimpleLogger::LOG_DEBUG("准规则{}", ind);
             }
         }
 
-        if (isMatch || matchedNodePos < 1) {
+        if (isMatch || isRf || lstNodePos < 1) {
             return {};
         }
 
@@ -330,9 +339,9 @@ public:
             delSDownedKs(state);
         }
         sm_downedNs.erase(sm_downedNs.begin() + 1, sm_downedNs.end());
-        sm_downedNs.push_back({ 0, std::vector<DKRecord>() });
+        sm_downedNs.push_back({ std::vector<DKRecord>() });
         curDownedN = &sm_downedNs.back();
-        ct_downedKs.clear();
+        ct_downedKs.erase(ct_downedKs.begin() + 1, ct_downedKs.end());
         ct_downedKs.push_back(std::vector<int>());
         goto mclp;
     }
@@ -369,22 +378,13 @@ public:
             DKRecord* curdkRecord = &curDownedK[curctDK[i]];
             int ruleInd = curdkRecord->ruleInd;
             int nodeInd = curdkRecord->nodeInd;
-            if (nodeInd < 0) {
-                nodeInd = -nodeInd - 1;
-            }
             RuleExpr* rule = &(sm_ruleMatchs[ruleInd].rules[nodeInd]);
             std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
             if (results[0] <= 0) {
-                if (curdkRecord->nodeInd >= 0) {
-                    curDownedN.mcRuleCnt--;
-                }
-                curdkRecord->nodeInd = -nodeInd - 1;
+                curdkRecord->del = true;
             }
             else {
-                if (curdkRecord->nodeInd < 0) {
-                    curDownedN.mcRuleCnt++;
-                }
-                curdkRecord->nodeInd = nodeInd;
+                curdkRecord->del = false;
             }
         }
 
@@ -394,10 +394,10 @@ public:
         bool isMatch = false;
         for (int i = 0; i < lstctDK.size(); i++) {
             DKRecord* lstdkRecord = &lstDK[lstctDK[i]];
-            int cCatchedNodePos = lstdkRecord->nodeInd;
-            if (cCatchedNodePos < 0) {
+            if (lstdkRecord->del) {
                 continue;
             }
+            int cCatchedNodePos = lstdkRecord->nodeInd + 1;
             int ind = lstdkRecord->ruleInd;
             int madtchedNodeSign = lstdkRecord->nodeSign;
             RuleMatch* match = &sm_ruleMatchs[ind];
@@ -414,7 +414,6 @@ public:
                             isMatch = true;
                             madtchedNodeSign |= 1 << cCatchedNodePos;
                             curDownedK.push_back({ ind, madtchedNodeSign, cCatchedNodePos });
-                            curDownedN.mcRuleCnt++;
                         }
                     }
                 }
@@ -457,6 +456,7 @@ public:
         int lastInd = state.macInd;
         if (lastInd < 0) {
             sm_downedNs.erase(sm_downedNs.begin() + 1, sm_downedNs.end());
+            ct_downedKs.erase(ct_downedKs.begin() + 1, ct_downedKs.end());
             return;
         }
 
@@ -464,6 +464,7 @@ public:
         int nodePos = sm_downedNs.size() - 1;
         while (true) {
             sm_downedNs.pop_back();
+            ct_downedKs.pop_back();
             nodePos--;
             if (nodePos < 1) {
                 break;
@@ -547,6 +548,9 @@ public:
                     case 4: {
                         std::vector<double> lpdts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
                         glbPms[key.key] = lpdts[0];
+                        if (key.outNum > 0) {
+                            state.macIntev = key.outNum;
+                        }
                         break;
                     }
                     default: break;
@@ -583,9 +587,7 @@ public:
                 finUserIntev = keyProp.out;
                 keyNms.push_back({ keyProp.name, i });
                 inputs.push_back(optInput.value());
-                if (state.debugFlag) {
-                    SimpleLogger::LOG_INFO("按下键: {}", keyProp.name);
-                }
+                SimpleLogger::LOG_DEBUG("按下键: {}", keyProp.name);
                 KvInput::setDown(keyProp.name);
             }
             if (state.macIntev == -1) {
@@ -664,7 +666,9 @@ private:
             if (c == ',' || c == ';') { // 另一组规则
                 if (beginPos < pos - delCnt) {
                     std::string ruleExpStr = rulesExpStr.substr(beginPos, pos - delCnt - beginPos);
-                    expr.evaluator.setExpression(ruleExpStr);
+                    if (!expr.evaluator.setExpression(ruleExpStr)) {
+                        return {};
+                    }
                     connManage.indexSign(expr.evaluator.getUsedVariables(), expr.dsignCode, expr.usignCode);
                     if (c == ';') {
                         expr.flag |= 1;
@@ -681,7 +685,9 @@ private:
         }
         if (beginPos < pos - delCnt) {
             std::string ruleExpStr = rulesExpStr.substr(beginPos, pos - delCnt - beginPos);
-            expr.evaluator.setExpression(ruleExpStr);
+            if (!expr.evaluator.setExpression(ruleExpStr)) {
+                return {};
+            }
             connManage.indexSign(expr.evaluator.getUsedVariables(), expr.dsignCode, expr.usignCode);
             ruleGroups.push_back(expr);
         }
@@ -707,9 +713,6 @@ private:
                     if (name == "_delay") {
                         expr.type = 3;
                     }
-                    if (name == "_new") {
-                        expr.type = 4;
-                    }
                     name.clear();
                 }
 
@@ -724,7 +727,10 @@ private:
                             cnt--;
                             if (cnt == 0) {
                                 std::string expStr = keysExpStr.substr(begPos + 1, pos - begPos - 1);
-                                expr.evaluator.setExpression(expStr);
+                                if (!expr.evaluator.setExpression(expStr)) {
+                                    return {};
+                                }
+                                c = keysExpStr[++pos];
                                 break;
                             }
                         }
@@ -810,8 +816,9 @@ private:
                     }
                 }
 
-                if (c == '$') { // 循环开始
+                if (c == '$') {
                     expr.type = 4;
+                    pos++;
                     continue;
                 }
 

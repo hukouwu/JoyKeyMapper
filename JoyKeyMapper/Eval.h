@@ -462,18 +462,24 @@ public:
     explicit ExpressionEvaluator(const std::string& expr) { setExpression(expr); }
 
 
-    void setExpression(const std::string& expr) {
+    bool setExpression(const std::string& expr) {
         m_usedVars.clear();
         m_rpnTokens.clear();
 
-        if (expr.empty()) return;
+        if (expr.empty()) return true;
 
         Lexer lexer(expr);
-        std::vector<Token> infixTokens = lexer.tokenize();
-        m_usedVars = lexer.getUsedVariables();
-
-        m_rpnTokens = RPNConverter::convertToRPN(infixTokens);
-        isEmpty = m_rpnTokens.empty();
+        try {
+            std::vector<Token> infixTokens = lexer.tokenize();
+            m_usedVars = lexer.getUsedVariables();
+            m_rpnTokens = RPNConverter::convertToRPN(infixTokens);
+            isEmpty = m_rpnTokens.empty();
+            return true;
+        }
+        catch (...) {
+            return false;
+        }
+        
     }
 
     const std::set<std::string>& getUsedVariables() const { return m_usedVars; }
