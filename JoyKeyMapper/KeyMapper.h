@@ -264,7 +264,7 @@ public:
         std::vector<int>& lstctDK = ct_downedKs[lstNodePos];
         lstctDK.clear();
 
-        bool isMatch = false;
+        bool hasMatch = false;
         for (int i = 0; i < lstDownedK.size(); i++) {
             DKRecord& lstdkRecord = lstDownedK[i];
             if (lstdkRecord.del) {
@@ -274,7 +274,7 @@ public:
             int ind = lstdkRecord.ruleInd;
             int madtchedNodeSign = lstdkRecord.nodeSign;
             RuleMatch* match = &sm_ruleMatchs[ind];
-            isMatch = false;
+            bool isMatch = false;
 
             while (true) {// 向后查找无序联动组
                 RuleExpr* rule = &(match->rules[cCatchedNodePos]);
@@ -284,6 +284,7 @@ public:
                         && (((rule->usignCode ^ state.usignCode) & state.usignCode) == 0)) {
                         std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
                         if (results[0] > 0) {
+                            hasMatch = true;
                             isMatch = true;
                             madtchedNodeSign |= 1 << cCatchedNodePos;
                             curDownedK->push_back({ ind, madtchedNodeSign, cCatchedNodePos });
@@ -331,7 +332,7 @@ public:
             }
         }
 
-        if (isMatch || isRf || lstNodePos < 1) {
+        if (hasMatch || isRf || lstNodePos < 1) {
             return {};
         }
 
@@ -461,12 +462,12 @@ public:
         }
 
         RuleMatch* match = &sm_ruleMatchs[lastInd];
-        int nodePos = sm_downedNs.size() - 1;
+        int nodePos = sm_downedNs.size() - 2;
         while (true) {
             sm_downedNs.pop_back();
             ct_downedKs.pop_back();
             nodePos--;
-            if (nodePos < 1) {
+            if (nodePos < 0) {
                 break;
             }
             if ((match->rules[nodePos].flag) & 1) {
@@ -548,6 +549,7 @@ public:
                     case 4: {
                         std::vector<double> lpdts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
                         glbPms[key.key] = lpdts[0];
+                        SimpleLogger::LOG_DEBUG("自定义变量{}={}", key.key, lpdts[0]);
                         if (key.outNum > 0) {
                             state.macIntev = key.outNum;
                         }

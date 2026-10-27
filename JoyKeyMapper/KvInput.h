@@ -49,7 +49,11 @@ public:
             input.type = INPUT_KEYBOARD;
             input.ki.wVk = vk;
             input.ki.wScan = 0;
-            input.ki.dwFlags = 0; // 0 表示按下
+            DWORD flags = 0;
+            if (isExtendedKey(vk)) {
+                flags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            input.ki.dwFlags = flags;
             input.ki.time = 0;
             input.ki.dwExtraInfo = 0;
             return std::make_tuple(1000, input);
@@ -169,7 +173,11 @@ public:
             input.type = INPUT_KEYBOARD;
             input.ki.wVk = vk;
             input.ki.wScan = 0;
-            input.ki.dwFlags = KEYEVENTF_KEYUP; // 释放标志
+            DWORD flags = KEYEVENTF_KEYUP;
+            if (isExtendedKey(vk)) {
+                flags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            input.ki.dwFlags = flags;
             input.ki.time = 0;
             input.ki.dwExtraInfo = 0;
             return input;
@@ -279,6 +287,12 @@ private:
         };
         
         return specialKeys.find(upperKey) != specialKeys.end();
+    }
+
+    static bool isExtendedKey(WORD vk) {
+        return (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT ||
+            vk == VK_HOME || vk == VK_END || vk == VK_PRIOR || vk == VK_NEXT ||
+            vk == VK_INSERT || vk == VK_DELETE);
     }
 
     inline static std::unordered_set<std::string> downedKeys;

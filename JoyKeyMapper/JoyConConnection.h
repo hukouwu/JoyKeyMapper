@@ -477,9 +477,10 @@ public:
 #左键
 {ZL}→MOUSE_LBT
 #右键
-{L-}→MOUSE_RBT
+{MINUS-}→MOUSE_RBT
 #鼠标移动
-{LSR}||{LSL}||{LSD}||{LSU}→MOUSE_MOV( ({LSR}+{LSL})>1800?({LSR}-{LSL})/50:({LSR}-{LSL})/200, ({LSD}+{LSU})>1800?({LSD}-{LSU})/50:({LSD}-{LSU})/200 )
+{LSR}||{LSL}||{LSD}||{LSU}→MOUSE_MOV( ({LSR}-{LSL})/200, ({LSD}-{LSU})/200 )
+{LSB}&&({LSR}||{LSL}||{LSD}||{LSU})→MOUSE_MOV( ({LSR}-{LSL})/50, ({LSD}-{LSU})/50 )
 {L}&&{LSR}→MOUSE_HRO(120)
 {L}&&{LSL}→MOUSE_HRO(-120)
 {L}&&{LSD}→MOUSE_VRO(-120)
@@ -487,28 +488,31 @@ public:
 {ZL}&&({LSR}||{LSL}||{LSD}||{LSU})→MOUSE_LBT:(1000,{ZL-})+MOUSE_MOV( ({LSR}-{LSL})/150, ({LSD}-{LSU})/150 )
 {SL_L}&&{ZL}→ALT:(1000,{SL_L-})+TAB
 {SL_L},{ZL}→SHIFT+MOUSE_LBT
-{SL_L},{UP}→CTRL+C
-{SL_L},{RIGHT}→CTRL+V
-{SL_L},{DOWN}→CTRL+S
-{SL_L},{LEFT}→CTRL+A
-{SL_L},{SL_L},{UP}→CTRL+Z
-{SL_L},{SL_L},{RIGHT}→CTRL+Y
-{SL_L},{SL_L},{DOWN}→CTRL+F
-{SL_L},{SL_L},{LEFT}→CTRL+D
-{MINUS}→$_flg0( {_flg0}>0?0:1 )
-{CAPTURE}→$_flg0( {_flg0}<0?0:-1 )
-{_flg0}==0&&{UP}→1
-{_flg0}==0&&{RIGHT}→2
-{_flg0}==0&&{DOWN}→3
-{_flg0}==0&&{LEFT}→4
-{_flg0}==1&&{UP}→SPACE
-{_flg0}==1&&{RIGHT}→TAB
-{_flg0}==1&&{DOWN}→ENTER
-{_flg0}==1&&{LEFT}→BKSP
-{_flg0}==-1&&{UP}→UP
-{_flg0}==-1&&{RIGHT}→RIGHT
-{_flg0}==-1&&{DOWN}→DOWN
-{_flg0}==-1&&{LEFT}→LEFT
+{UP}→SHIFT+F6
+{RIGHT}→F10
+{DOWN}→F11
+{LEFT}→F5
+{L}&&{UP}→SPACE
+{L}&&{RIGHT}→TAB
+{L}&&{DOWN}→ENTER
+{L}&&{LEFT}→BKSP
+{L},{UP}→CTRL+C
+{L},{RIGHT}→CTRL+V
+{L},{DOWN}→CTRL+S
+{L},{LEFT}→CTRL+A
+{SL_L},{UP}→CTRL+Z
+{SL_L},{RIGHT}→CTRL+Y
+{SL_L},{DOWN}→CTRL+F
+{SL_L},{LEFT}→CTRL+D
+{CAPTURE}→$_flg0( {_flg0}==1?0:1 ):1000
+{SL_L},{SL_L};{_flg0}==0&&{UP}→UP
+{SL_L},{SL_L};{_flg0}==0&&{RIGHT}→RIGHT
+{SL_L},{SL_L};{_flg0}==0&&{DOWN}→DOWN
+{SL_L},{SL_L};{_flg0}==0&&{LEFT}→LEFT
+{SL_L},{SL_L};{_flg0}==1&&{UP}→SHIFT+UP
+{SL_L},{SL_L};{_flg0}==1&&{RIGHT}→SHIFT+RIGHT
+{SL_L},{SL_L};{_flg0}==1&&{DOWN}→SHIFT+DOWN
+{SL_L},{SL_L};{_flg0}==1&&{LEFT}→SHIFT+LEFT
 )xxx";
         }
 
@@ -518,9 +522,10 @@ public:
 #左键
 {ZR}→MOUSE_LBT
 #右键
-{R-}→MOUSE_RBT
+{PLUS-}→MOUSE_RBT
 #鼠标移动
-{RSR}||{RSL}||{RSD}||{RSU}→MOUSE_MOV( ({RSR}+{RSL})>1800?({RSR}-{RSL})/50:({RSR}-{RSL})/200, ({RSD}+{RSU})>1800?({RSD}-{RSU})/50:({RSD}-{RSU})/200 )
+{RSR}||{RSL}||{RSD}||{RSU}→MOUSE_MOV( ({RSR}-{RSL})/200, ({RSD}-{RSU})/200 )
+{RSB}&&({RSR}||{RSL}||{RSD}||{RSU})→MOUSE_MOV( ({RSR}-{RSL})/200, ({RSD}-{RSU})/200 )
 {R}&&{RSR}→MOUSE_HRO(120)
 {R}&&{RSL}→MOUSE_HRO(-120)
 {R}&&{RSD}→MOUSE_VRO(-120)
@@ -528,28 +533,31 @@ public:
 {ZR}&&({RSR}||{RSL}||{RSD}||{RSU})→MOUSE_LBT:(1000,{ZR-})+MOUSE_MOV( ({RSR}-{RSL})/150, ({RSD}-{RSU})/150 )
 {SR_R}&&{ZR}→ALT:(1000,{SR_R-})+TAB
 {SR_R},{ZR}→SHIFT+MOUSE_LBT
-{SR_R},{X}→CTRL+C
-{SR_R},{A}→CTRL+V
-{SR_R},{B}→CTRL+S
-{SR_R},{Y}→CTRL+A
-{SR_R},{SR_R},{X}→CTRL+Z
-{SR_R},{SR_R},{A}→CTRL+Y
-{SR_R},{SR_R},{B}→CTRL+F
-{SR_R},{SR_R},{Y}→CTRL+D
-{PLUS}→$_flg0( {_flg0}>0?0:1 )
-{HOME}→$_flg0( {_flg0}<0?0:-1 )
-{_flg0}==0&&{X}→1
-{_flg0}==0&&{A}→2
-{_flg0}==0&&{B}→3
-{_flg0}==0&&{Y}→4
-{_flg0}==1&&{X}→SPACE
-{_flg0}==1&&{A}→TAB
-{_flg0}==1&&{B}→ENTER
-{_flg0}==1&&{Y}→BKSP
-{_flg0}==-1&&{X}→UP
-{_flg0}==-1&&{A}→RIGHT
-{_flg0}==-1&&{B}→DOWN
-{_flg0}==-1&&{Y}→LEFT
+{X}→SHIFT+F6
+{A}→F10
+{B}→F11
+{Y}→F5
+{R}&&{X}→SPACE
+{R}&&{A}→TAB
+{R}&&{B}→ENTER
+{R}&&{Y}→BKSP
+{R},{X}→CTRL+C
+{R},{A}→CTRL+V
+{R},{B}→CTRL+S
+{R},{Y}→CTRL+A
+{SR_R},{X}→CTRL+Z
+{SR_R},{A}→CTRL+Y
+{SR_R},{B}→CTRL+F
+{SR_R},{Y}→CTRL+D
+{HOME}→$_flg0( {_flg0}==1?0:1 ):1000
+{SR_R},{SR_R};{_flg0}==0&&{X}→UP
+{SR_R},{SR_R};{_flg0}==0&&{A}→RIGHT
+{SR_R},{SR_R};{_flg0}==0&&{B}→DOWN
+{SR_R},{SR_R};{_flg0}==0&&{Y}→LEFT
+{SR_R},{SR_R};{_flg0}==1&&{X}→SHIFT+UP
+{SR_R},{SR_R};{_flg0}==1&&{A}→SHIFT+RIGHT
+{SR_R},{SR_R};{_flg0}==1&&{B}→SHIFT+DOWN
+{SR_R},{SR_R};{_flg0}==1&&{Y}→SHIFT+LEFT
 )xxx";
         }
     }
