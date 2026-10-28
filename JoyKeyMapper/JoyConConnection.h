@@ -487,8 +487,9 @@ public:
 {L}&&{LSU}→MOUSE_VRO(120)
 {ZL}&&({LSR}||{LSL}||{LSD}||{LSU})→MOUSE_LBT:(1000,{ZL-})+MOUSE_MOV( ({LSR}-{LSL})/150, ({LSD}-{LSU})/150 )
 {SL_L}&&{ZL}→ALT:(1000,{SL_L-})+TAB
+{SL_L}&&{L}→WIN+D
 {SL_L},{ZL}→SHIFT+MOUSE_LBT
-{UP}→SHIFT+F6
+{UP}→SHIFT+F5
 {RIGHT}→F10
 {DOWN}→F11
 {LEFT}→F5
@@ -504,7 +505,7 @@ public:
 {SL_L},{RIGHT}→CTRL+Y
 {SL_L},{DOWN}→CTRL+F
 {SL_L},{LEFT}→CTRL+D
-{CAPTURE}→$_flg0( {_flg0}==1?0:1 ):1000
+{CAPTURE}→$_flg0( {_flg0}==1?0:1 )
 {SL_L},{SL_L};{_flg0}==0&&{UP}→UP
 {SL_L},{SL_L};{_flg0}==0&&{RIGHT}→RIGHT
 {SL_L},{SL_L};{_flg0}==0&&{DOWN}→DOWN
@@ -532,8 +533,9 @@ public:
 {R}&&{RSU}→MOUSE_VRO(120)
 {ZR}&&({RSR}||{RSL}||{RSD}||{RSU})→MOUSE_LBT:(1000,{ZR-})+MOUSE_MOV( ({RSR}-{RSL})/150, ({RSD}-{RSU})/150 )
 {SR_R}&&{ZR}→ALT:(1000,{SR_R-})+TAB
+{SR_R}&&{R}→WIN+D
 {SR_R},{ZR}→SHIFT+MOUSE_LBT
-{X}→SHIFT+F6
+{X}→SHIFT+F5
 {A}→F10
 {B}→F11
 {Y}→F5
@@ -549,7 +551,7 @@ public:
 {SR_R},{A}→CTRL+Y
 {SR_R},{B}→CTRL+F
 {SR_R},{Y}→CTRL+D
-{HOME}→$_flg0( {_flg0}==1?0:1 ):1000
+{HOME}→$_flg0( {_flg0}==1?0:1 )
 {SR_R},{SR_R};{_flg0}==0&&{X}→UP
 {SR_R},{SR_R};{_flg0}==0&&{A}→RIGHT
 {SR_R},{SR_R};{_flg0}==0&&{B}→DOWN

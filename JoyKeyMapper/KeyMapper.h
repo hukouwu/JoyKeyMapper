@@ -553,6 +553,9 @@ public:
                         if (key.outNum > 0) {
                             state.macIntev = key.outNum;
                         }
+                        else {
+                            state.macIntev = -1;
+                        }
                         break;
                     }
                     default: break;

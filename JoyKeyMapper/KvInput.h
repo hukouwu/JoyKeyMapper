@@ -16,7 +16,7 @@ public:
             "ENTER", "ESC", "SPACE", "TAB",
             "BKSP", "UP", "DOWN", "LEFT", "RIGHT",
             "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-            "CTRL", "SHIFT", "ALT",
+            "CTRL", "SHIFT", "ALT", "WIN",
             "INS", "DEL", "HOME", "END",
             "PGUP", "PGDN"
     };
@@ -241,6 +241,8 @@ private:
         if (upperKey == "TAB") return VK_TAB;
         if (upperKey == "BACKSPACE" || upperKey == "BKSP") return VK_BACK;
 
+        if (upperKey == "WIN") return VK_LWIN;
+
         if (upperKey == "UP") return VK_UP;
         if (upperKey == "DOWN") return VK_DOWN;
         if (upperKey == "LEFT") return VK_LEFT;
@@ -281,7 +283,7 @@ private:
             "ENTER", "RETURN", "ESCAPE", "ESC", "SPACE", "TAB",
             "BACKSPACE", "BKSP", "UP", "DOWN", "LEFT", "RIGHT",
             "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-            "CTRL", "CONTROL", "SHIFT", "ALT",
+            "CTRL", "CONTROL", "SHIFT", "ALT", "WIN",
             "INSERT", "INS", "DELETE", "DEL", "HOME", "END",
             "PAGEUP", "PGUP", "PAGEDOWN", "PGDN"
         };
@@ -292,7 +294,7 @@ private:
     static bool isExtendedKey(WORD vk) {
         return (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT ||
             vk == VK_HOME || vk == VK_END || vk == VK_PRIOR || vk == VK_NEXT ||
-            vk == VK_INSERT || vk == VK_DELETE);
+            vk == VK_LWIN || vk == VK_INSERT || vk == VK_DELETE);
     }
 
     inline static std::unordered_set<std::string> downedKeys;

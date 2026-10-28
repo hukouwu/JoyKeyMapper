@@ -102,7 +102,7 @@ void ProcessShortEvents(const EvState& state) {
     
     if (state.ttype == 0) {
         bool flg = g_keyMapper.freshSKeys(state);
-        if (!flg && (state.gctTm < state.macIntev || state.macInd < 0)) {
+        if (!flg && (state.macIntev < 0 || state.gctTm < state.macIntev || state.macInd < 0)) {
             return;
         }
     }
