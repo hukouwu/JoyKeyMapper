@@ -7,3 +7,7 @@ Joy-Con的陀螺仪、加速计等暂未支持。
 添加了CMGamepad手柄支持
 
 git不常登，反馈或建议请加qq:1973473546
+
+
+https://github.com/user-attachments/assets/605b3917-0078-44b3-887a-81abd9d2ff0f
+
