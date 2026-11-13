@@ -490,7 +490,7 @@ public:
 {SL_L}&&{L}→WIN+D
 {SL_L},{ZL}→SHIFT+MOUSE_LBT
 {UP}→SHIFT+F5
-{RIGHT}→F10
+{RIGHT}→(10,1000):(1000,{RIGHT/}?-1:1)[F10]
 {DOWN}→F11
 {LEFT}→F5
 {L}&&{UP}→SPACE
@@ -536,7 +536,7 @@ public:
 {SR_R}&&{R}→WIN+D
 {SR_R},{ZR}→SHIFT+MOUSE_LBT
 {X}→SHIFT+F5
-{A}→F10
+{A}→(10,1000):(1000,{A/}?-1:1)[F10]
 {B}→F11
 {Y}→F5
 {R}&&{X}→SPACE

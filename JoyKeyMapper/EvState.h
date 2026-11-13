@@ -19,6 +19,7 @@ struct EvState {
     mutable int macIntev = -1;
     mutable int cTm = 0;
     mutable int lTm = 0;
+    mutable int dTm = 0;
     mutable int gctTm = 0;
     mutable bool isng = false;
     mutable bool redyMac = false;
@@ -28,12 +29,12 @@ struct EvState {
     mutable unsigned long long curMac;
 
     // 摇杆|按键 按下数值
-    std::map<std::string, int> dsbKvs;
+    mutable std::map<std::string, int> dsbKvs;
     // 新按键
-    std::vector<std::string> nsbKvs;
+    mutable std::vector<std::string> nsbKvs;
     // 摇杆|按键 释放数值
-    std::map<std::string, int> usbKvs;
-    std::map<std::string, std::string> btnVal;
+    mutable std::map<std::string, int> usbKvs;
+    mutable std::map<std::string, std::string> btnVal;
 
     // 电量
     int Battery = 0;
@@ -51,10 +52,10 @@ struct EvState {
         }
 
         cTm = GetTickCount();
-        int t = cTm - lTm;
-        gctTm += t;
+        dTm = cTm - lTm;
+        gctTm += dTm;
         for (auto& c : _ct) {
-            c.second += t;
+            c.second += dTm;
         }
         for (auto& dsb : dsbKvs) {
             std::string name = "_ct." + dsb.first;
@@ -80,11 +81,11 @@ struct EvState {
         usbKvs.clear();
         ttype = 0;
         isng = false;
-        if (cTm == 0) {
-            cTm = GetTickCount();
-        }
         lTm = cTm;
         btnVal.clear();
+    }
+    void init() {
+        cTm = GetTickCount();
     }
     
 };

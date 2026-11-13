@@ -26,25 +26,59 @@ public:
         return upper;
     }
 
-    /**
-     * @brief 解析按下事件的 INPUT 结构
-     * @param keyName 按键名称 (如 "a", "ENTER", "MOUSE_LBT")
-     * @param propVars 参数列表 (对于键盘通常是 VK code 或忽略; 对于鼠标可能是 dx, dy, wheel delta)
-     * @return std::optional<INPUT> 构造好的输入事件，如果键名未知则返回 nullopt
-     */
-    static std::tuple <int, std::optional<INPUT>> parseDownInput(const std::string& keyName, const std::vector<double>& propVars) {
+    /*
+    * 3 = 需要up | 需要down
+    */
+    static std::tuple<int, int> tryDownInput(const std::string& keyName) {
         std::string upperKey = ToUpper(keyName);
-        if (downedKeys.find(upperKey) != downedKeys.end()) {
-            return std::make_tuple(0, std::nullopt);
-        }
-        
-        INPUT input = { 0 };
-        input.type = INPUT_KEYBOARD; // 默认为键盘
 
         // --- 键盘处理 ---
         if (isKeyboardKey(upperKey)) {
             WORD vk = getVkCode(upperKey);
-            if (vk == 0) return std::make_tuple(0, std::nullopt);
+            if (vk == 0) return { 0, 0 };
+
+            return { 3, 1000 };
+        }
+
+        // --- 鼠标处理 ---
+        else if (upperKey == "MOUSE_LBT") {
+            return { 3, 1000 };
+        }
+        else if (upperKey == "MOUSE_RBT") {
+            return { 3, 1000 };
+        }
+        else if (upperKey == "MOUSE_MBT") {
+            return { 3, 1000 };
+        }
+        else if (upperKey == "MOUSE_MOV") {
+            return { 1, 0 };
+        }
+        else if (upperKey == "MOUSE_ABM") {
+            return { 1, 0 };
+        }
+        else if (upperKey == "MOUSE_VRO") {
+            return { 1, 0 };
+        }
+        else if (upperKey == "MOUSE_HRO") {
+            return { 1, 0 };
+        }
+
+        return { 0, 0 };
+    }
+    static std::tuple<int, INPUT> parseDownInput(int type, const std::string& keyName, const std::vector<double>& propVars) {
+        std::string upperKey = ToUpper(keyName);
+        INPUT input = { 0 };
+
+        if ((type & 2)) {
+             if (downedKeys.find(upperKey) != downedKeys.end()) {
+                return std::make_tuple(0, input);
+            }
+            downedKeys.insert(upperKey);
+        }
+
+        // --- 键盘处理 ---
+        if (isKeyboardKey(upperKey)) {
+            WORD vk = getVkCode(upperKey);
 
             input.type = INPUT_KEYBOARD;
             input.ki.wVk = vk;
@@ -56,7 +90,7 @@ public:
             input.ki.dwFlags = flags;
             input.ki.time = 0;
             input.ki.dwExtraInfo = 0;
-            return std::make_tuple(1000, input);
+            return std::make_tuple(1, input);
         }
 
         // --- 鼠标处理 ---
@@ -68,7 +102,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(1000, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_RBT") {
             input.type = INPUT_MOUSE;
@@ -78,7 +112,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(1000, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_MBT") {
             input.type = INPUT_MOUSE;
@@ -88,7 +122,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(1000, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_MOV") {
             input.type = INPUT_MOUSE;
@@ -103,7 +137,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_MOVE;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(0, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_ABM") {
             input.type = INPUT_MOUSE;
@@ -122,7 +156,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(0, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_VRO") {
             input.type = INPUT_MOUSE;
@@ -137,7 +171,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_WHEEL;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(0, input);
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_HRO") {
             input.type = INPUT_MOUSE;
@@ -152,23 +186,27 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_HWHEEL;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return std::make_tuple(0, input);
+            return std::make_tuple(1, input);
         }
 
-        return std::make_tuple(0, std::nullopt);
+        return std::make_tuple(0, input);
     }
 
     /**
      * @brief 解析释放事件的 INPUT 结构
      */
-    static std::optional<INPUT> parseUpInput(const std::string& keyName, const std::vector<double>& propVars) {
+    static std::tuple <int, INPUT> parseUpInput(const std::string& keyName) {
         std::string upperKey = ToUpper(keyName);
         INPUT input = { 0 };
+
+        if (downedKeys.find(upperKey) == downedKeys.end()) {
+            return std::make_tuple(0, input);
+        }
+        downedKeys.erase(upperKey);
 
         // --- 键盘处理 ---
         if (isKeyboardKey(upperKey)) {
             WORD vk = getVkCode(upperKey);
-            if (vk == 0) return std::nullopt;
 
             input.type = INPUT_KEYBOARD;
             input.ki.wVk = vk;
@@ -180,7 +218,7 @@ public:
             input.ki.dwFlags = flags;
             input.ki.time = 0;
             input.ki.dwExtraInfo = 0;
-            return input;
+            return std::make_tuple(1, input);
         }
 
         // --- 鼠标处理 ---
@@ -192,7 +230,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return input;
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_RBT") {
             input.type = INPUT_MOUSE;
@@ -202,7 +240,7 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_RIGHTUP;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return input;
+            return std::make_tuple(1, input);
         }
         else if (upperKey == "MOUSE_MBT") {
             input.type = INPUT_MOUSE;
@@ -212,20 +250,11 @@ public:
             input.mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
             input.mi.time = 0;
             input.mi.dwExtraInfo = 0;
-            return input;
+            return std::make_tuple(1, input);
         }
 
         // 鼠标移动和滚轮通常没有"释放"概念，返回 nullopt 或忽略
-        return std::nullopt;
-    }
-
-    static void setDown(std::string kNm) {
-        std::string upperKey = ToUpper(kNm);
-        downedKeys.insert(upperKey);
-    }
-    static void setUp(std::string kNm) {
-        std::string upperKey = ToUpper(kNm);
-        downedKeys.erase(upperKey);
+        return std::make_tuple(0, input);
     }
 
 private:

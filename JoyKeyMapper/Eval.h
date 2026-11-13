@@ -82,7 +82,13 @@ public:
                 }
                 std::string content = m_input.substr(m_pos + 1, endPos - m_pos - 1);
                 if (!content.empty()) {
+                    int subType = 0;
+                    if (content.ends_with('/')) {
+                        content = content.substr(0, content.size() - 1);
+                        subType = 1;
+                    }
                     tokens.emplace_back(TokenTypes::Identifier, content);
+                    tokens.back().tkSubType = subType;
                     usedVariables.insert(content);
                 }
                 m_pos = endPos + 1;
@@ -331,7 +337,7 @@ private:
 // --- 优化层：RPN 求值器 (基于栈循环) ---
 class RPNCalculator {
 public:
-    static std::vector<double> evaluate(const std::vector<Token>& rpnTokens, const std::vector<std::map<std::string, int>>& params) {
+    static std::vector<double> evaluate(const std::vector<Token>& rpnTokens, std::vector<std::map<std::string, int>*>& params) {
         std::stack<double> evalStack;
         std::vector<double> results;
 
@@ -343,10 +349,13 @@ public:
             }
             else if (token.tkType == TokenTypes::Identifier) {
                 double val = 0;
-                for (const auto& paramMap : params) {
-                    auto it = paramMap.find(token.value);
-                    if (it != paramMap.end()) {
+                for (auto& paramMap : params) {
+                    auto it = paramMap->find(token.value);
+                    if (it != paramMap->end()) {
                         val = static_cast<double>(it->second);
+                        if (token.tkSubType == 1) {
+                            paramMap->erase(token.value);
+                        }
                         break;
                     }
                 }
@@ -485,7 +494,7 @@ public:
     const std::set<std::string>& getUsedVariables() const { return m_usedVars; }
 
     // 求值：传入当前的变量状态
-    std::vector<double> eval(const std::vector<std::map<std::string, int>>& pms) const {
+    std::vector<double> eval(std::vector<std::map<std::string, int>*> pms) {
         if (m_rpnTokens.empty()) return {};
 
         try {

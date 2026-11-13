@@ -10,6 +10,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <functional>
 
 #include "ConnManage.h"
 #include "Eval.h"
@@ -25,13 +26,6 @@ public:
         int nxSet = 2;
         int8_t flag = 0;// 时间变量|联动按键组回退
     };
-    struct KeyExpr {
-        int type = 0;
-        std::string key;
-        int outNum = 0;
-        ExpressionEvaluator evaluator;
-        ExpressionEvaluator upEval;
-    };
     struct DKRecord {
         int ruleInd;
         int nodeSign;
@@ -41,20 +35,65 @@ public:
     struct DNRecord {
         std::vector< DKRecord> downedKs;
     };
+
+    struct DlUpKey {
+        std::string keyNm;
+        ExpressionEvaluator* upEval;
+    };
+    struct KeyExpr {
+        int type = 0;
+        std::string key;
+        int outNum = 0;
+        std::vector<int> propVars;
+        ExpressionEvaluator evaluator;
+        ExpressionEvaluator upEval;
+    };
+    struct KeyModNode {
+        std::vector<KeyExpr>* keysP;
+        std::vector<int> dInputNode;
+        std::vector<int> uInputNode;
+        std::vector<DlUpKey> duInputNode;
+    };
     struct RuleMatch {
         std::vector<std::vector<KeyExpr>> keys;
         std::vector<RuleExpr> rules;
+        std::vector<KeyModNode> keyModGroups;
         bool ctFlg = false;
 
         // 构造函数
         RuleMatch(std::vector<RuleExpr> rules, const std::string& expr, const std::vector<std::vector<KeyExpr>>& keys, const std::string& kes)
             : rules(rules), keys(keys) {
+            for (std::vector<KeyExpr>& keyGroup : this->keys) {
+                KeyModNode keyModNode;
+                keyModNode.keysP = &keyGroup;
+                for (int i = 0; i < keyGroup.size(); i++) {
+                    KeyExpr& key = keyGroup[i];
+                    if (key.type == 0) {
+                        auto [type, outNum] = KvInput::tryDownInput(key.key);
+                        key.type = type;
+                        if (type != 0) {
+                            if (key.outNum == 0) {
+                                key.outNum = outNum;
+                            }
+                            if (type & 1) {
+                                keyModNode.dInputNode.push_back(i);
+                            }
+                            if (type & 2) {
+                                if (key.upEval.isEmpty) {
+                                    keyModNode.uInputNode.push_back(i);
+                                }
+                                else {
+                                    keyModNode.duInputNode.push_back({ key.key, &(key.upEval) });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                std::reverse(keyModNode.uInputNode.begin(), keyModNode.uInputNode.end());
+                keyModGroups.push_back(keyModNode);
+            }
         }
-    };
-    struct DlUpKey {
-        std::string keyNm;
-        ExpressionEvaluator upEval;
-        INPUT input;
     };
 
     // 加载配置文件
@@ -91,13 +130,13 @@ public:
                 confFlg = true;
                 line = line.substr(1, line.size());
             }
-            bool confFlgTmp = confFlg;
-            // 配置结束
-            if (!line.empty() && line[line.size() - 1] == ']') {
-                line = line.substr(0, line.size() - 1);
-                confFlgTmp = false;
-            }
             if (confFlg) {
+                bool isEnd = false;
+                // 配置结束
+                if (!line.empty() && line[line.size() - 1] == ']') {
+                    line = line.substr(0, line.size() - 1);
+                    isEnd = true;
+                }
                 if (line.length() >= 6 &&
                     line.substr(0, 3) == "###" &&
                     line.substr(line.length() - 3) == "###") { // 新配置组
@@ -111,7 +150,9 @@ public:
                     auto [key, value] = parseKeyAndValue(line);
                     confs[currentBlockName][key] = value;
                 }
-                confFlg = confFlgTmp;
+                if (isEnd) {
+                    confFlg = false;
+                }
                 continue;
             }
 
@@ -173,18 +214,20 @@ public:
     }
 
     // 短事件
-    std::tuple<std::vector<std::vector<KeyExpr>>, int> matchSKeys(const EvState& state) {
+    int matchSKeys(const EvState& state) {
         if (!confFlag) {
-            return { };
+            return -1;
         }
         {
             std::vector<INPUT> inputs;
             for (auto it = delayUpKeys.begin(); it != delayUpKeys.end();){
-                std::vector<double> results = it->upEval.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
+                std::vector<double> results = it->upEval->eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
                 if (results.size() > 0 && results[0] > 0) {
                     SimpleLogger::LOG_INFO("延迟释放{}", it->keyNm);
-                    inputs.push_back(it->input);
-                    KvInput::setUp(it->keyNm);
+                    auto [sign, input] = KvInput::parseUpInput(it->keyNm);
+                    if (sign != 0) {
+                        inputs.push_back(input);
+                    }
                     it = delayUpKeys.erase(it);
                 }
                 else {
@@ -200,7 +243,7 @@ public:
             if (state.macInd >= 0) {
                 RuleMatch* match = &sm_ruleMatchs[state.macInd];
                 SimpleLogger::LOG_DEBUG("延续规则{}", state.macInd);
-                return std::make_tuple(match->keys, state.macInd);
+                return state.macInd;
             }
         }
         else {
@@ -212,7 +255,7 @@ public:
             }
         }
         if (!state.redyMac) {
-            return {};
+            return -1;
         }
        
         bool isRf = false;
@@ -282,7 +325,7 @@ public:
                     // 检查是否有超出规则外按下的键
                     if ((((rule->dsignCode ^ state.dsignCode) & state.dsignCode) == 0)
                         && (((rule->usignCode ^ state.usignCode) & state.usignCode) == 0)) {
-                        std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
+                        std::vector<double> results = rule->evaluator.eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
                         if (results[0] > 0) {
                             hasMatch = true;
                             isMatch = true;
@@ -325,7 +368,7 @@ public:
                 state.macInd = ind;
                 state.macIntev = -1;
                 SimpleLogger::LOG_DEBUG("匹配规则{}", ind);
-                return std::make_tuple(match->keys, ind);
+                return ind;
             }
             else {
                 SimpleLogger::LOG_DEBUG("准规则{}", ind);
@@ -333,7 +376,7 @@ public:
         }
 
         if (hasMatch || isRf || lstNodePos < 1) {
-            return {};
+            return -1;
         }
 
         if (state.dsignCode == 0) {
@@ -358,7 +401,7 @@ public:
                 return false;
             }
             else {
-                std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
+                std::vector<double> results = rule->evaluator.eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
                 if (results[0] > 0) {
                     return false;
                 }
@@ -380,7 +423,7 @@ public:
             int ruleInd = curdkRecord->ruleInd;
             int nodeInd = curdkRecord->nodeInd;
             RuleExpr* rule = &(sm_ruleMatchs[ruleInd].rules[nodeInd]);
-            std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
+            std::vector<double> results = rule->evaluator.eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
             if (results[0] <= 0) {
                 curdkRecord->del = true;
             }
@@ -410,7 +453,7 @@ public:
                     // 检查是否有超出规则外按下的键
                     if ((((rule->dsignCode ^ state.dsignCode) & state.dsignCode) == 0)
                         && (((rule->usignCode ^ state.usignCode) & state.usignCode) == 0)) {
-                        std::vector<double> results = rule->evaluator.eval({ state.dsbKvs, state.usbKvs, state._ct, glbPms });
+                        std::vector<double> results = rule->evaluator.eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
                         if (results[0] > 0) {
                             isMatch = true;
                             madtchedNodeSign |= 1 << cCatchedNodePos;
@@ -447,7 +490,7 @@ public:
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -478,155 +521,197 @@ public:
         state.macInd = -1;
         state.isng = true;
     }
-    
-    struct LpInfo {
-        int begin = 0;
-        int limit = 2;
+
+    struct KeyPack {
+        int ruleIndex;
+        std::vector<KeyModNode>* keyModGroups;
+        std::map<std::string, int> ppmap;
+        int gi = 0;
+        int ni = 0;
         int delay = 0;
+        int firstDelay = 1;
+        int cnt = 0;
+        ExpressionEvaluator* bkEval;
     };
-    struct keyPropsOut {
-        std::string name;
-        std::vector<double> props;
-        int out = 0;
-        KeyExpr* keyExpr;
-    };
-    struct keyUpRec {
-        std::string name;
-        int index;
-    };
-    void sendKeyEvent(std::vector<std::vector<KeyExpr>>& sendKeys, const EvState& state) {
-        if (sendKeys.empty()) return;
-
-        std::vector<LpInfo> lpstack;
-        LpInfo curLpInfo;
-        for (int nodeInd = 0; nodeInd < sendKeys.size(); nodeInd++) {// 循环多组按键
-            std::vector<KeyExpr>& keys = sendKeys[nodeInd];
-            std::vector<keyPropsOut> nmKeyPropsOut; // 一组按键名称和传参
-            bool skipSend = false;
-
-            for (KeyExpr& key : keys) {
-                if (key.type != 0) {
-                    skipSend = true;
-                    switch (key.type) {
-                    case 1:  {
-                        lpstack.push_back(curLpInfo);
-                        curLpInfo = LpInfo();
-
-                        curLpInfo.begin = nodeInd;
-                        std::vector<double> lpdts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
-                        if (lpdts.size() > 0) {
-                            curLpInfo.limit = lpdts[0];
-                            if (lpdts.size() > 1) {
-                                curLpInfo.delay = lpdts[1];
-                            }
-                        }
-
-                        break;
-                    }
-                    case 2: {
-                        curLpInfo.limit -= curLpInfo.limit > 0;
-                        if (curLpInfo.limit != 0) {
-                            nodeInd = curLpInfo.begin;
-                            if (curLpInfo.delay > 0) {
-                                Sleep(curLpInfo.delay);
-                            }
-                            break;
-                        }
-                        
-                        curLpInfo = lpstack.back();
-                        lpstack.pop_back();
-                        
-                        break;
-                    }
-                    case 3: {
-                        std::vector<double> lpdts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
-                        int delay = lpdts[0];
-                        if (delay > 0) {
-                            Sleep(delay);
-                        }
-                        break;
-                    }
-                    case 4: {
-                        std::vector<double> lpdts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
-                        glbPms[key.key] = lpdts[0];
-                        SimpleLogger::LOG_DEBUG("自定义变量{}={}", key.key, lpdts[0]);
-                        if (key.outNum > 0) {
-                            state.macIntev = key.outNum;
-                        }
-                        else {
-                            state.macIntev = -1;
-                        }
-                        break;
-                    }
-                    default: break;
-                    }
-
-                    if (skipSend) {
-                        break;
-                    }
-                }
-
-                std::vector<double> dts = key.evaluator.eval({ state.dsbKvs, state.usbKvs, glbPms });
-                if (key.key == "") {
+    void loopKeyEvent(const EvState& state) {
+        for (auto it = delayKeys.begin(); it != delayKeys.end(); ) {
+            if (it->firstDelay > 0) {
+                it->firstDelay -= state.dTm;
+                if (it->firstDelay > 0) {
+                    ++it;
                     continue;
                 }
-                nmKeyPropsOut.push_back({ key.key, dts, key.outNum, &key });
             }
 
-            if (skipSend) {
-                continue;
+            if (!(it->bkEval->isEmpty)) {
+                std::vector<double> res = it->bkEval->eval({ &state.dsbKvs, &state.usbKvs, &state._ct, &glbPms });
+                int typ = res[0];
+                if (typ == 0) {
+                    ++it;
+                    continue;
+                }
+                else if (typ == 1) {
+                }
+                else if (typ == -1) {
+                    it = delayKeys.erase(it);
+                    continue;
+                }
             }
 
-            std::vector<keyUpRec> keyNms;
-            std::vector<INPUT> inputs;
-            int finDefIntev = -1;
-            int finUserIntev = -1;
+            if (it->delay > 0) {
+                it->delay -= state.dTm;
+                if (it->delay > 0) {
+                    ++it;
+                    continue;
+                }
+            }
+            int flg = excKeyNode(*it, state);
+            if (flg < 0) {
+                it = delayKeys.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
+    }
+    void sendKeyEvent(int ruleInd, const EvState& state) {
+        std::vector<KeyModNode>& keyModGroups = sm_ruleMatchs[ruleInd].keyModGroups;
+        if (keyModGroups.empty()) return;
+
+        std::map<std::string, int> mergedMap = state.dsbKvs;
+        for (const auto& kv : state.usbKvs) {
+            mergedMap[kv.first] = kv.second;
+        }
+        KeyPack kp = { ruleInd, &keyModGroups, mergedMap };
+        int flg = excKeyNode(kp, state);
+        if (flg >= 0) {
+            delayKeys.push_back(kp);
+        }
+    }
+
+    int excKeyNode(KeyPack& kp, const EvState& state) {
+        std::vector<KeyModNode>& keyModGroups = *(kp.keyModGroups);
+        int begni = kp.ni;
+        for (int nodeInd = kp.gi; nodeInd < keyModGroups.size(); nodeInd++) {// 循环多组按键
+            KeyModNode& kmn = keyModGroups[nodeInd];
+            std::vector<KeyExpr>* keysP = kmn.keysP;
+
+            int ind = begni;
+            begni = 0;
+            for (; ind < keysP->size(); ind++) {
+                KeyExpr& key = (*keysP)[ind];
+                switch (key.type) {
+                case 5: {// _delay
+                    std::vector<double> lpdts = key.evaluator.eval({ &kp.ppmap, &glbPms });
+                    int delay = lpdts[0];
+                    if (delay > 0) {
+                        kp.delay = delay;
+                        kp.gi = nodeInd;
+                        kp.ni = ind;
+                        return 1;
+                    }
+                    break;
+                }
+                case 6: {// $
+                    std::vector<double> lpdts = key.evaluator.eval({ &kp.ppmap, &glbPms });
+                    glbPms[key.key] = lpdts[0];
+                    if (key.outNum > 0) {
+                        state.macIntev = key.outNum;
+                    }
+                    else {
+                        state.macIntev = -1;
+                    }
+                    break;
+                }
+                case 7: {// [
+                    int limit = 0;
+                    int delay = 0;
+                    std::vector<double> lpdts = key.evaluator.eval({ &kp.ppmap, &glbPms });
+                    if (lpdts.size() > 0) {
+                        limit = lpdts[0];
+                        if (lpdts.size() > 1) {
+                            delay = lpdts[1];
+                        }
+                    }
+
+                    int firstDelay = key.outNum;
+                    int lpoi = key.propVars[0];
+                    int lCnt = kp.cnt;
+
+                    if (lCnt >= limit) {
+                        nodeInd = lpoi;
+                        break;
+                    }
+
+                    kp.cnt++;
+                    if (lCnt == 0) {
+                        break;
+                    }
+                    else if (lCnt == 1) {
+                        kp.firstDelay = firstDelay;
+                        if (delay > firstDelay) {
+                            kp.firstDelay = delay;
+                        }
+                        kp.gi = nodeInd;
+                        kp.ni = ind + 1;
+                        kp.bkEval = &key.upEval;
+                        return 1;
+                    }
+                    else {
+                        kp.delay = delay;
+                        return 1;
+                    }
+                    break;
+                }
+                case 8: {// 循环结束
+                    nodeInd = key.propVars[0] - 1;
+                    break;
+                }
+                default: break;
+                }
+            }
+
             // 按下键
-            for (int i = 0; i < nmKeyPropsOut.size(); i++) {
-                auto& keyProp = nmKeyPropsOut[i];
-                auto [intev, optInput] = KvInput::parseDownInput(keyProp.name, keyProp.props);
-                if (!optInput.has_value()) {
-                    continue;
+            std::vector<INPUT> inputs;
+            std::vector<int>& din = kmn.dInputNode;
+            std::unordered_set<std::string> miss;
+            for (int ind : din) {
+                KeyExpr& key = (*keysP)[ind];
+                std::vector<double> lpdts = key.evaluator.eval({ &kp.ppmap, &glbPms });
+                auto [sign, input] = KvInput::parseDownInput(key.type, key.key, lpdts);
+                if (sign != 0) {
+                    SimpleLogger::LOG_DEBUG("发送按键{}", key.key);
+                    inputs.push_back(input);
+                    state.macIntev = key.outNum;
                 }
-                finDefIntev = intev;
-                finUserIntev = keyProp.out;
-                keyNms.push_back({ keyProp.name, i });
-                inputs.push_back(optInput.value());
-                SimpleLogger::LOG_DEBUG("按下键: {}", keyProp.name);
-                KvInput::setDown(keyProp.name);
+                else {
+                    miss.insert(key.key);
+                }
             }
-            if (state.macIntev == -1) {
-                state.macIntev = finUserIntev > 0? finUserIntev : finDefIntev;
-            }
-            
-            //LOG_INFO("Send Keys: {}", myjoin(keyNms, ","));
             UINT sentCount = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
 
             inputs.clear();
+            std::vector<int>& uin = kmn.uInputNode;
             // 释放键
-            for (int i = keyNms.size() - 1; i >= 0; i--) {
-                auto& keyNm = keyNms[i];
-                keyPropsOut& kpo = nmKeyPropsOut[keyNm.index];
-                auto& keyDts = kpo.props;
-                std::optional<INPUT> optInput = KvInput::parseUpInput(keyNm.name, keyDts);
-                if (!optInput.has_value()) {
-                    KvInput::setUp(keyNm.name);
+            for (int ind : uin) {
+                KeyExpr& key = (*keysP)[ind];
+                if (miss.find(key.key) != miss.end()) {
                     continue;
                 }
-                if (kpo.keyExpr->upEval.isEmpty) {// 立即释放
-                    inputs.push_back(optInput.value());
-                    KvInput::setUp(keyNm.name);
-                }
-                else {// 延迟释放
-                    SimpleLogger::LOG_INFO("加入延迟释放: {}", kpo.keyExpr->key);
-                    delayUpKeys.push_back({ kpo.keyExpr->key, kpo.keyExpr->upEval, optInput.value()});
+                auto [sign, input] = KvInput::parseUpInput(key.key);
+                if (sign != 0) {
+                    SimpleLogger::LOG_DEBUG("释放按键{}", key.key);
+                    inputs.push_back(input);
                 }
             }
-            if (inputs.size() > 0) {
-                sentCount = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+            sentCount = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+            for (auto& duinput : kmn.duInputNode) {
+                delayUpKeys.push_back( duinput );
             }
 
         }
+
+        return -1;
     }
 
 private:
@@ -700,13 +785,18 @@ private:
     }
     // 目标按键解析
     std::vector<std::vector<KeyExpr>> getKeyPropExpre(const std::string& keysExpStr) {
-        std::vector<std::vector<KeyExpr>> toKeysGroups;
+        std::list<std::list<KeyExpr>> toKeysGroups;
+        toKeysGroups.push_back(std::list<KeyExpr>());
+        std::list<KeyExpr>* toKeys;
+        toKeys = &(toKeysGroups.back());
+        toKeys->push_back(KeyExpr());
+        KeyExpr* expr;
+        expr = &(toKeys->back());
 
-        std::vector<KeyExpr> toKeys;
+        std::stack<KeyExpr*> loopStk;
         int pos = 0;
         std::string name = "";
         std::string out = "";
-        KeyExpr expr;
         while (pos < keysExpStr.size()) {
             char c = keysExpStr[pos];
             
@@ -714,13 +804,13 @@ private:
                 name += c;
             } else {
                 if (!name.empty()) {
-                    expr.key = name;
+                    expr->key = name;
                     if (name == "_delay") {
-                        expr.type = 3;
+                        expr->type = 5;
                     }
                     name.clear();
                 }
-
+                
                 if (c == '(') { // 找到(
                     int cnt = 1;
                     int begPos = pos;
@@ -728,11 +818,12 @@ private:
                         c = keysExpStr[pos];
                         if (c == '(') {
                             cnt++;
-                        } else if (c == ')') {
+                        }
+                        else if (c == ')') {
                             cnt--;
                             if (cnt == 0) {
                                 std::string expStr = keysExpStr.substr(begPos + 1, pos - begPos - 1);
-                                if (!expr.evaluator.setExpression(expStr)) {
+                                if (!expr->evaluator.setExpression(expStr)) {
                                     return {};
                                 }
                                 c = keysExpStr[++pos];
@@ -752,12 +843,9 @@ private:
                     pos++;
                     while (pos < keysExpStr.size()) {
                         c = keysExpStr[pos];
-                        if (('0' <= c && c <= '9')) {
-                            out += c;
-                        }
-                        else {
-                            bool breakFlag = false;
-                            switch (c) {
+                        
+                        bool breakFlag = false;
+                        switch (c) {
                             case ' ':
                                 break;
                             case '(':
@@ -766,88 +854,93 @@ private:
                             case ')':
                                 khFlag--;
                                 break;
-                            case '{':
-                                while (pos < keysExpStr.size()) {
-                                    c = keysExpStr[pos];
-                                    out += c;
-                                    if (c == '}') {
-                                        break;
-                                    }
-                                    pos++;
-                                }
-                                break;
                             case ',':
                                 switch (groupIndex) {
-                                    case 0: 
-                                        if (!out.empty()) {
-                                            expr.outNum = atoi(out.c_str());
-                                            out.clear();
-                                        }
-                                        break;
-                                    case 1:
-                                        break;
-                                    default:
-                                        break;
+                                case 0:
+                                    if (!out.empty()) {
+                                        expr->outNum = atoi(out.c_str());
+                                        out.clear();
+                                    }
+                                    break;
+                                case 1:
+                                    break;
+                                default:
+                                    break;
                                 }
                                 groupIndex++;
                                 break;
                             default:
                                 if (khFlag > 0) {
+                                    out += c;
                                 }
                                 else {
                                     breakFlag = true;
                                 }
                                 break;
-
-                            }
-                            if (breakFlag) {
-                                break;
-                            }
+                        }
+                        if (breakFlag) {
+                            break;
                         }
                         pos++;
                     }
                     if (!out.empty()) {
                         switch (groupIndex) {
-                            case 0:
-                                expr.outNum = atoi(out.c_str());
-                                out.clear();
-                                break;
-                            case 1:
-                                expr.upEval.setExpression(out);
-                                break;
-                            default:
-                                break;
+                        case 0:
+                            expr->outNum = atoi(out.c_str());
+                            out.clear();
+                            break;
+                        case 1:
+                            expr->upEval.setExpression(out);
+                            break;
+                        default:
+                            break;
                         }
                     }
                 }
 
                 if (c == '$') {
-                    expr.type = 4;
+                    expr->type = 6;
                     pos++;
                     continue;
                 }
-
+                
                 if (c == '[') { // 循环开始
-                    expr.type = 1;
-                    expr.key = "[";
+                    expr->type = 7;
+                    expr->key = "[";
+                    expr->propVars.push_back(toKeysGroups.size() - 1);
+                    loopStk.push(expr);
                     c = ',';
                 }
 
-                if (!expr.key.empty() || !expr.evaluator.isEmpty) {
-                    toKeys.push_back(expr);
-                    expr = KeyExpr();
+                if (!expr->key.empty() || !expr->evaluator.isEmpty) {
+                    toKeys->push_back(KeyExpr());
+                    expr = &(toKeys->back());
                 }
 
                 if (c == ']') { // 结束
-                    expr.type = 2;
-                    expr.key = "]";
-                    c = ',';
+                    if (toKeys->size() > 1) {
+                        toKeys->pop_back();
+                        toKeysGroups.push_back(std::list<KeyExpr>());
+                        toKeys = &(toKeysGroups.back());
+                        toKeys->push_back(KeyExpr());
+                        expr = &(toKeys->back());
+                    }
+
+                    expr->type = 8;
+                    expr->key = "]";
+                    KeyExpr* bk = loopStk.top();
+                    loopStk.pop();
+                    expr->propVars.push_back(bk->propVars[0]);
+                    bk->propVars[0] = toKeysGroups.size() - 1;
                 }
 
                 if (c == ',') { // 另一组按键
-                    if (!toKeys.empty()) {
-                        toKeysGroups.push_back(toKeys);
-                        toKeys.clear();
+                    if (toKeys->size() > 1) {
+                        toKeys->pop_back();
+                        toKeysGroups.push_back(std::list<KeyExpr>());
+                        toKeys = &(toKeysGroups.back());
+                        toKeys->push_back(KeyExpr());
+                        expr = &(toKeys->back());
                     }
                 }
             }
@@ -855,15 +948,23 @@ private:
             pos++;
         }
         if (!name.empty()) {
-            expr.key = name;
+            expr->key = name;
         }
-        if (!expr.key.empty()) {
-            toKeys.push_back(expr);
+        if (expr->key.empty()) {
+            toKeys->pop_back();
         }
-        if (!toKeys.empty()) {
-            toKeysGroups.push_back(toKeys);
+        if (toKeys->empty()) {
+            toKeysGroups.pop_back();
         }
-        return toKeysGroups;
+
+        std::vector<std::vector<KeyExpr>> retKeysGroups;
+        retKeysGroups.reserve(toKeysGroups.size());
+        std::transform(toKeysGroups.begin(), toKeysGroups.end(),
+            std::back_inserter(retKeysGroups),
+            [](const std::list<KeyExpr>& lst) {
+                return std::vector<KeyExpr>(lst.begin(), lst.end());
+            });
+        return retKeysGroups;
     }
 public:
     // 短事件映射表：源按钮列表 -> 目标按键列表
@@ -872,5 +973,6 @@ public:
     std::vector<std::vector<int>> ct_downedKs;
     std::map<std::string, int> glbPms;
     std::vector<DlUpKey> delayUpKeys;
+    std::vector<KeyPack> delayKeys;
     bool confFlag = false;
 };

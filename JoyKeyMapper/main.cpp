@@ -88,29 +88,13 @@ static HWND hEditConfig;
 
 std::thread g_sendThread;
 static HINSTANCE g_hInst;
-void AsyncSendWrapper(std::vector<std::vector<KeyMapper::KeyExpr>> mappedKeys, const EvState state, int ruleInd) {
+void AsyncSendWrapper(auto mappedKeys, const EvState state, int ruleInd) {
     // 执行实际的发送逻辑
     g_keyMapper.sendKeyEvent(mappedKeys, state);
 
 
 }
-// 短事件
-void ProcessShortEvents(const EvState& state) {
-    if (state.dsignCode == 0 && state.usignCode == 0) {
-        return;
-    }
-    
-    if (state.ttype == 0) {
-        bool flg = g_keyMapper.freshSKeys(state);
-        if (!flg && (state.macIntev < 0 || state.gctTm < state.macIntev || state.macInd < 0)) {
-            return;
-        }
-    }
-    auto [mappedKeys, ruleInd] = g_keyMapper.matchSKeys(state);
-    if (mappedKeys.size() > 0) {
-        g_keyMapper.sendKeyEvent(mappedKeys, state);
-    }
-}
+
 
 void showNewBtn(const EvState& state) {
     if (funVars[showBtnCnfName] < 0) return;
@@ -137,8 +121,8 @@ void showNewBtn(const EvState& state) {
         }
 
         return str == prebtn;
-    });
-    
+        });
+
     if (item != devBtns.end()) {
         int index = static_cast<int>(std::distance(devBtns.begin(), item));
         int currentSel = SendMessage(hListBtns, LB_GETCURSEL, 0, 0);
@@ -149,7 +133,24 @@ void showNewBtn(const EvState& state) {
         }
     }
 }
-
+// 短事件
+void ProcessShortEvents(const EvState& state) {
+    g_keyMapper.loopKeyEvent(state);
+    if (state.dsignCode == 0 && state.usignCode == 0) {
+        return;
+    }
+    
+    if (state.ttype == 0) {
+        bool flg = g_keyMapper.freshSKeys(state);
+        if (!flg && (state.macIntev < 0 || state.gctTm < state.macIntev || state.macInd < 0)) {
+            return;
+        }
+    }
+    int ruleInd = g_keyMapper.matchSKeys(state);
+    if (ruleInd >= 0) {
+        g_keyMapper.sendKeyEvent(ruleInd, state);
+    }
+}
 void handleChangeState(const EvState& state) {
     if (state.nsbKvs.size() > 0) {
         showNewBtn(state);
@@ -206,14 +207,13 @@ void saveConfigFromEdit(HWND hEdit, const std::string& filepath, const std::stri
             confFlg = true;
             line = line.substr(1, line.size());
         }
-        bool confFlgTmp = confFlg;
-        // 配置结束
-        if (!line.empty() && line[line.size() - 1] == ']') {
-            line = line.substr(0, line.size() - 1);
-            confFlgTmp = false;
-        }
-
         if (confFlg) {
+            bool isEnd = false;
+            // 配置结束
+            if (!line.empty() && line[line.size() - 1] == ']') {
+                line = line.substr(0, line.size() - 1);
+                isEnd = true;
+            }
             if (line.length() >= 6 &&
                 line.substr(0, 3) == "###" &&
                 line.substr(line.length() - 3) == "###") { // 新配置组
@@ -227,7 +227,9 @@ void saveConfigFromEdit(HWND hEdit, const std::string& filepath, const std::stri
                 auto [key, value] = parseKeyAndValue(line);
                 tmpconfs[currentBlockName][key] = value;
             }
-            confFlg = confFlgTmp;
+            if (isEnd) {
+                confFlg = false;
+            }
         }
         else {
             rulesline.push_back(line);

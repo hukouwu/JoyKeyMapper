@@ -207,6 +207,7 @@ public:
     int readLoop(EvState& state) override {
         int tryinterval = interval > 10 ? interval : 10;
         std::vector<std::unique_ptr<IConnection>>& m_connections = getConnections();
+        state.init();
         while (true) {
             if (connState != 0) {
                 if (connState == 1) {
